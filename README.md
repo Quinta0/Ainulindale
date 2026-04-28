@@ -1,5 +1,10 @@
-# Ainulindale
-A fully self-hosted, automated music discovery and streaming system. No Spotify. No YouTube Music. No ads. Just your music, your server, your rules.
+# 🎵 Ainulindale
+
+> *"There was Eru, the One [...] and he made first the Ainur [...] and they sang before him, and he was glad."*  
+> — J.R.R. Tolkien, The Silmarillion
+
+A fully self-hosted, automated music discovery and streaming system.  
+No Spotify. No YouTube Music. No ads. Just your music, your server, your rules.
 
 ---
 
@@ -28,16 +33,29 @@ A fully self-hosted, automated music discovery and streaming system. No Spotify.
 
 ---
 
+## Prerequisites
+
+- Unraid NAS (or any Linux server with Docker)
+- ProtonVPN account (paid, for P2P/WireGuard support)
+- Soulseek account — free at [slsknet.org](https://www.slsknet.org)
+- ListenBrainz account — free at [listenbrainz.org](https://listenbrainz.org)
+- Last.fm account — free at [last.fm](https://www.last.fm)
+- Last.fm API key — free at [last.fm/api/account/create](https://www.last.fm/api/account/create)
+- Substreamer app on your phone
+- Pangolin or any reverse proxy for external access
+
+---
+
 ## Folder Structure
 
 ```
 /mnt/user/appdata/
 ├── gluetun/               ← VPN state (auto-populated)
 ├── slskd/
-│   └── slskd.yml          ← slskd config
+│   └── slskd.yml          ← slskd config (copy from repo)
 └── explo/
-    ├── .env               ← Explo config
-    └── docker-compose.yml ← Full stack compose file
+    ├── .env               ← Explo config (copy from .env.example)
+    └── docker-compose.yml ← Full stack compose file (copy from repo)
 
 /mnt/user/data/media/music/
 ├── incomplete/            ← In-progress downloads (Navidrome ignores these)
@@ -47,149 +65,67 @@ A fully self-hosted, automated music discovery and streaming system. No Spotify.
 
 ---
 
-## docker-compose.yml
+## Setup
 
-```yaml
-services:
+### 1. Clone the repo
 
-  gluetun:
-    image: qmcgaw/gluetun:latest
-    container_name: gluetun
-    cap_add:
-      - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    environment:
-      - VPN_SERVICE_PROVIDER=protonvpn
-      - VPN_TYPE=wireguard
-      - WIREGUARD_PRIVATE_KEY=YOUR_PRIVATE_KEY_HERE
-      - WIREGUARD_ADDRESSES=10.2.0.2/32
-      - SERVER_COUNTRIES=Switzerland
-      - TZ=Europe/Zurich
-    ports:
-      - 5030:5030
-    volumes:
-      - /mnt/user/appdata/gluetun:/gluetun
-    restart: unless-stopped
-
-  slskd:
-    image: slskd/slskd:latest
-    container_name: slskd
-    network_mode: "service:gluetun"
-    depends_on:
-      gluetun:
-        condition: service_healthy
-    environment:
-      - SLSKD_REMOTE_CONFIGURATION=true
-    volumes:
-      - /mnt/user/appdata/slskd:/app
-      - /mnt/user/data/media/music:/downloads
-      - /mnt/user/data/media/music:/music:ro
-    restart: unless-stopped
-
-  explo-weekly:
-    image: ghcr.io/lumepart/explo:latest
-    container_name: explo-weekly
-    environment:
-      - EXECUTE_ON_START=true
-      - WEEKLY_EXPLORATION_FLAGS=--playlist=weekly-exploration --persist
-    volumes:
-      - /mnt/user/appdata/explo/.env:/opt/explo/.env
-      - /mnt/user/data/media/music/explo:/data
-      - /mnt/user/data/media/music:/slskd
-    restart: "no"
-
-  explo-daily:
-    image: ghcr.io/lumepart/explo:latest
-    container_name: explo-daily
-    environment:
-      - EXECUTE_ON_START=true
-      - DAILY_JAMS_FLAGS=--playlist=daily-jams --download-mode=skip
-    volumes:
-      - /mnt/user/appdata/explo/.env:/opt/explo/.env
-      - /mnt/user/data/media/music/explo:/data
-      - /mnt/user/data/media/music:/slskd
-    restart: "no"
+```bash
+git clone https://github.com/yourusername/ainulindale
+cd ainulindale
 ```
 
----
+### 2. Create your config files
 
-## Explo .env
-
-```env
-# --- Discovery ---
-DISCOVERY_SERVICE=listenbrainz
-LISTENBRAINZ_USER=your_listenbrainz_username
-LISTENBRAINZ_DISCOVERY=playlist
-
-# --- Navidrome (Subsonic API) ---
-EXPLO_SYSTEM=subsonic
-SYSTEM_URL=http://192.168.1.x:4533
-SYSTEM_USERNAME=your_navidrome_username
-SYSTEM_PASSWORD=your_navidrome_password
-
-# --- Downloaders (slskd first, YouTube fallback) ---
-DOWNLOAD_SERVICES=slskd,youtube
-TRACK_EXTENSION=mp3
-
-# --- slskd ---
-SLSKD_URL=http://slskd:5030
-SLSKD_API_KEY=your_slskd_api_key
-MIGRATE_DOWNLOADS=true
-RENAME_TRACK=true
-
-# --- Quality gates (FLAC/WAV preferred, 320kbps minimum) ---
-EXTENSIONS=flac,wav,mp3
-MIN_BITRATE=320
-MIN_BIT_DEPTH=16
-
-# --- YouTube fallback (optional) ---
-YOUTUBE_API_KEY=your_youtube_api_key
-
-# --- Misc ---
-SLEEP=2
-LOG_LEVEL=INFO
+```bash
+cp .env.example .env
 ```
 
----
+Fill in `.env` with your WireGuard private key, paths, and VPN country.
 
-## slskd.yml
-
-```yaml
-soulseek:
-  username: your_soulseek_username
-  password: your_soulseek_password
-
-web:
-  authentication:
-    username: your_chosen_web_username
-    password: your_chosen_web_password
-    api_keys:
-      explo_key:
-        key: your_api_key_minimum_16_chars_long
-        role: readwrite
-        cidr: 0.0.0.0/0,::/0
-
-directories:
-  incomplete: /downloads/incomplete
-  downloads: /downloads
-
-transfers:
-  download:
-    slots: 50
-  upload:
-    slots: 20
-
-shares:
-  directories:
-    - /music
+Copy `slskd.yml` to your appdata folder:
+```bash
+cp slskd.yml /mnt/user/appdata/slskd/slskd.yml
 ```
 
----
+Fill in your Soulseek credentials and choose a web UI username/password.
 
-## Navidrome (Unraid Community Apps)
+Copy the Explo env block from `.env.example` into a separate file:
+```bash
+cp .env.example /mnt/user/appdata/explo/.env
+```
 
-Navidrome is installed via Unraid's Community Apps store. Add these extra environment variables in the container template:
+Fill in your ListenBrainz username, Navidrome URL/credentials, and slskd API key.
+
+### 3. Create required folders
+
+```bash
+mkdir -p /mnt/user/appdata/{gluetun,slskd,explo}
+mkdir -p /mnt/user/data/media/music/{explo,incomplete}
+```
+
+### 4. Get your ProtonVPN WireGuard key
+
+1. Log into [account.proton.me](https://account.proton.me) → VPN → Downloads
+2. Select **WireGuard** protocol and a **P2P-capable server**
+3. Generate the config and copy the `PrivateKey` value into your `.env`
+
+### 5. Start the stack
+
+```bash
+# Start VPN first and verify it connects
+docker compose up -d gluetun
+docker compose logs -f gluetun
+# Look for: "Public IP address is x.x.x.x"
+
+# Then start slskd
+docker compose up -d slskd
+```
+
+Open `http://your-nas-ip:5030`, log in with your slskd credentials, go to **Options → API Keys**, generate a key and paste it into `/mnt/user/appdata/explo/.env` as `SLSKD_API_KEY`.
+
+### 6. Install Navidrome via Unraid Community Apps
+
+Add these environment variables in the Navidrome container template:
 
 | Variable | Value |
 |---|---|
@@ -198,23 +134,17 @@ Navidrome is installed via Unraid's Community Apps store. Add these extra enviro
 | `ND_LASTFM_ENABLED` | `true` |
 | `ND_SCANSCHEDULE` | `1m` |
 
-Last.fm API credentials: [last.fm/api/account/create](https://www.last.fm/api/account/create)
-
----
-
-## Automation — Unraid User Scripts
+### 7. Set up automation via Unraid User Scripts
 
 Install the **User Scripts** plugin from Community Apps, then add two scripts:
 
-### Weekly Exploration (every Tuesday at 00:15)
-Cron: `15 0 * * 2`
+**Weekly Exploration** — Cron: `15 0 * * 2`
 ```bash
 #!/bin/bash
 docker compose -f /mnt/user/appdata/explo/docker-compose.yml up explo-weekly
 ```
 
-### Daily Jams (every day at 00:15)
-Cron: `15 0 * * *`
+**Daily Jams** — Cron: `15 0 * * *`
 ```bash
 #!/bin/bash
 docker compose -f /mnt/user/appdata/explo/docker-compose.yml up explo-daily
@@ -257,13 +187,6 @@ You discover new music 🎵
 
 ---
 
-## Prerequisites
+## License
 
-- Unraid NAS (or any Linux server with Docker)
-- ProtonVPN account (paid, for P2P/WireGuard support)
-- Soulseek account — free at [slsknet.org](https://www.slsknet.org)
-- ListenBrainz account — free at [listenbrainz.org](https://listenbrainz.org)
-- Last.fm account — free at [last.fm](https://www.last.fm)
-- Last.fm API key — free at [last.fm/api](https://www.last.fm/api/account/create)
-- Substreamer app on your phone
-- Pangolin or any reverse proxy for external access
+MIT — do whatever you want with it.

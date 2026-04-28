@@ -1,0 +1,60 @@
+services:
+
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
+      - SERVER_COUNTRIES=${VPN_COUNTRY:-Switzerland}
+      - TZ=${TZ:-Europe/Zurich}
+    ports:
+      - 5030:5030
+    volumes:
+      - ${APPDATA_PATH}/gluetun:/gluetun
+    restart: unless-stopped
+
+  slskd:
+    image: slskd/slskd:latest
+    container_name: slskd
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    environment:
+      - SLSKD_REMOTE_CONFIGURATION=true
+    volumes:
+      - ${APPDATA_PATH}/slskd:/app
+      - ${MUSIC_PATH}:/downloads
+      - ${MUSIC_PATH}:/music:ro
+    restart: unless-stopped
+
+  explo-weekly:
+    image: ghcr.io/lumepart/explo:latest
+    container_name: explo-weekly
+    environment:
+      - EXECUTE_ON_START=true
+      - WEEKLY_EXPLORATION_FLAGS=--playlist=weekly-exploration --persist
+    volumes:
+      - ${APPDATA_PATH}/explo/.env:/opt/explo/.env
+      - ${MUSIC_PATH}/explo:/data
+      - ${MUSIC_PATH}:/slskd
+    restart: "no"
+
+  explo-daily:
+    image: ghcr.io/lumepart/explo:latest
+    container_name: explo-daily
+    environment:
+      - EXECUTE_ON_START=true
+      - DAILY_JAMS_FLAGS=--playlist=daily-jams --download-mode=skip
+    volumes:
+      - ${APPDATA_PATH}/explo/.env:/opt/explo/.env
+      - ${MUSIC_PATH}/explo:/data
+      - ${MUSIC_PATH}:/slskd
+    restart: "no"

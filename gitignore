@@ -1,0 +1,15 @@
+# Environment files with real secrets — never commit these
+.env
+appdata/explo/.env
+
+# In case anyone copies actual config files in
+slskd.yml.local
+docker-compose.override.yml
+
+# OS clutter
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/

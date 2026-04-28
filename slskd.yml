@@ -1,0 +1,27 @@
+soulseek:
+  username: your_soulseek_username
+  password: your_soulseek_password
+
+web:
+  authentication:
+    username: your_chosen_web_username
+    password: your_chosen_web_password
+    api_keys:
+      explo_key:
+        key: your_api_key_minimum_16_chars_long   # paste this into .env as SLSKD_API_KEY
+        role: readwrite
+        cidr: 0.0.0.0/0,::/0
+
+directories:
+  incomplete: /downloads/incomplete
+  downloads: /downloads
+
+transfers:
+  download:
+    slots: 50
+  upload:
+    slots: 20
+
+shares:
+  directories:
+    - /music

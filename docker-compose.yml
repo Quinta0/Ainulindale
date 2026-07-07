@@ -1,7 +1,6 @@
 services:
-
   gluetun:
-    image: qmcgaw/gluetun:latest
+    image: qmcgaw/gluetun:v3.41.1
     container_name: gluetun
     cap_add:
       - NET_ADMIN
@@ -14,14 +13,20 @@ services:
       - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
       - SERVER_COUNTRIES=${VPN_COUNTRY:-Switzerland}
       - TZ=${TZ:-Europe/Zurich}
+      - VPN_PORT_FORWARDING=${VPN_PORT_FORWARDING:-off}
+      - VPN_PORT_FORWARDING_PROVIDER=protonvpn
+      - PORT_FORWARD_ONLY=${VPN_PORT_FORWARDING:-off}
+      - VPN_PORT_FORWARDING_STATUS_FILE=/gluetun/forwarded_port
     ports:
       - 5030:5030
+      - 8000:8000
     volumes:
       - ${APPDATA_PATH}/gluetun:/gluetun
     restart: unless-stopped
-
+    labels:
+      - autoheal=true
   slskd:
-    image: slskd/slskd:latest
+    image: slskd/slskd:0.25.1
     container_name: slskd
     network_mode: "service:gluetun"
     depends_on:
@@ -34,27 +39,48 @@ services:
       - ${MUSIC_PATH}:/downloads
       - ${MUSIC_PATH}:/music:ro
     restart: unless-stopped
-
-  explo-weekly:
-    image: ghcr.io/lumepart/explo:latest
-    container_name: explo-weekly
+    labels:
+      - autoheal=true
+  autoheal:
+    image: willfarrell/autoheal:latest
+    container_name: autoheal
+    restart: unless-stopped
     environment:
-      - EXECUTE_ON_START=true
+      - AUTOHEAL_CONTAINER_LABEL=autoheal
+      - AUTOHEAL_INTERVAL=30
+      - AUTOHEAL_START_PERIOD=120
+      - AUTOHEAL_DEFAULT_STOP_TIMEOUT=30
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+  explo:
+    image: ghcr.io/lumepart/explo:v1.1.0
+    container_name: explo
+    environment:
+      - TZ=${TZ:-Europe/Zurich}
+      - WEB_UI=false
+      - EXECUTE_ON_START=false
+      - WEEKLY_EXPLORATION_SCHEDULE=15 0 * * 2
       - WEEKLY_EXPLORATION_FLAGS=--playlist=weekly-exploration --persist
+      - WEEKLY_JAMS_SCHEDULE=30 0 * * 1
+      - WEEKLY_JAMS_FLAGS=--playlist=weekly-jams --persist
+      - DAILY_JAMS_SCHEDULE=15 1 * * *
+      - DAILY_JAMS_FLAGS=--playlist=daily-jams --persist
     volumes:
       - ${APPDATA_PATH}/explo/.env:/opt/explo/.env
+      - ${APPDATA_PATH}/explo/config:/opt/explo/config
       - ${MUSIC_PATH}/explo:/data
       - ${MUSIC_PATH}:/slskd
-    restart: "no"
-
-  explo-daily:
-    image: ghcr.io/lumepart/explo:latest
-    container_name: explo-daily
+    restart: unless-stopped
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    container_name: lidarr
     environment:
-      - EXECUTE_ON_START=true
-      - DAILY_JAMS_FLAGS=--playlist=daily-jams --download-mode=skip
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
+      - TZ=${TZ:-Europe/Zurich}
     volumes:
-      - ${APPDATA_PATH}/explo/.env:/opt/explo/.env
-      - ${MUSIC_PATH}/explo:/data
-      - ${MUSIC_PATH}:/slskd
-    restart: "no"
+      - ${APPDATA_PATH}/lidarr:/config
+      - ${MUSIC_PATH}:/music
+    ports:
+      - 8686:8686
+    restart: unless-stopped

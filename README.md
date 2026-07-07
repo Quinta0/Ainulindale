@@ -27,6 +27,7 @@ No Spotify. No YouTube Music. No ads. Just your music, your server, your rules.
 | **Pangolin** | Reverse proxy — exposes Navidrome securely to the internet |
 | **Gluetun** | VPN gateway container — all Soulseek traffic exits via ProtonVPN |
 | **slskd** | Soulseek client — searches and downloads music from the P2P network |
+| **autoheal** | Watches slskd/gluetun health status and force-restarts them if they hang |
 | **Explo** | Discovery engine — connects ListenBrainz recommendations to slskd |
 | **ListenBrainz** | Open-source scrobbler + recommendation engine |
 | **Last.fm** | Secondary scrobbler for stats and social features |
@@ -55,7 +56,7 @@ No Spotify. No YouTube Music. No ads. Just your music, your server, your rules.
 │   └── slskd.yml          ← slskd config (copy from repo)
 └── explo/
     ├── .env               ← Explo config (copy from .env.example)
-    └── docker-compose.yml ← Full stack compose file (copy from repo)
+    └── config/            ← Explo's playlist cache + cover art (auto-populated, must persist)
 
 /mnt/user/data/media/music/
 ├── incomplete/            ← In-progress downloads (Navidrome ignores these)
@@ -99,7 +100,7 @@ Fill in your ListenBrainz username, Navidrome URL/credentials, and slskd API key
 ### 3. Create required folders
 
 ```bash
-mkdir -p /mnt/user/appdata/{gluetun,slskd,explo}
+mkdir -p /mnt/user/appdata/{gluetun,slskd,explo/config}
 mkdir -p /mnt/user/data/media/music/{explo,incomplete}
 ```
 
@@ -134,21 +135,15 @@ Add these environment variables in the Navidrome container template:
 | `ND_LASTFM_ENABLED` | `true` |
 | `ND_SCANSCHEDULE` | `1m` |
 
-### 7. Set up automation via Unraid User Scripts
+### 7. Start Explo and autoheal
 
-Install the **User Scripts** plugin from Community Apps, then add two scripts:
-
-**Weekly Exploration** — Cron: `15 0 * * 2`
 ```bash
-#!/bin/bash
-docker compose -f /mnt/user/appdata/explo/docker-compose.yml up explo-weekly
+docker compose up -d explo autoheal
 ```
 
-**Daily Jams** — Cron: `15 0 * * *`
-```bash
-#!/bin/bash
-docker compose -f /mnt/user/appdata/explo/docker-compose.yml up explo-daily
-```
+Unlike the rest of the stack, Explo doesn't need any external scheduler (no Unraid User Scripts, no cron). It runs continuously and schedules Weekly Exploration and Daily Jams itself via `WEEKLY_EXPLORATION_SCHEDULE` / `DAILY_JAMS_SCHEDULE` in `docker-compose.yml`, and `EXECUTE_ON_START=false` means restarting or updating the container never triggers an extra, out-of-schedule run. This is what keeps it from downloading the same week twice — see [Troubleshooting](#troubleshooting) below for the full explanation.
+
+`autoheal` also just runs continuously in the background; it watches slskd and gluetun and restarts either one automatically if Docker marks it unhealthy.
 
 ---
 
@@ -173,6 +168,32 @@ Navidrome scans every 1 minute → appears in Substreamer
         ↓
 You discover new music 🎵
 ```
+
+---
+
+## Troubleshooting
+
+### slskd hangs and needs a manual restart every ~24h
+
+This was almost always one of two things, both addressed in the current compose file:
+
+- **slskd itself getting stuck** (memory pressure / stuck transfers) — fixed by pinning `slskd/slskd:0.25.1`, which bundles a round of upstream fixes for stuck and failing transfers.
+- **gluetun's tunnel silently hanging** — since slskd runs inside gluetun's network namespace, a frozen gluetun looks identical to a frozen slskd. Fixed by pinning `qmcgaw/gluetun:v3.41.1`, which resolves a healthcheck race condition that could make gluetun hang completely.
+
+Both containers already ship a Docker healthcheck, but **Docker does not restart a container just because it's unhealthy** — that gap is why a manual restart was needed. The new `autoheal` service closes it: it watches both containers (via the `autoheal=true` label) and force-restarts whichever one goes unhealthy, with no manual intervention.
+
+If slskd still misbehaves after this, check `docker ps` for its health status and `docker logs slskd`/`docker logs gluetun` before restarting manually.
+
+### Weekly Exploration downloaded multiple times
+
+The old setup ran two one-shot `explo-weekly` / `explo-daily` containers (`restart: "no"`, `EXECUTE_ON_START=true`) that were triggered by an external Unraid User Scripts cron. That design had two compounding problems:
+
+1. Every container restart (a host reboot, a Docker update, the scheduler firing slightly out of sync) re-ran Explo immediately because of `EXECUTE_ON_START=true`, regardless of whether that week's playlist already existed.
+2. Explo's playlist cache had nowhere to persist between runs (no `/opt/explo/config` volume), so each fresh container had no memory of "I already built this week's playlist" and would build it again.
+
+The current compose runs a single, always-on `explo` container with its own internal cron (`WEEKLY_EXPLORATION_SCHEDULE` / `DAILY_JAMS_SCHEDULE`), `EXECUTE_ON_START=false`, and a persistent `/opt/explo/config` volume, plus the newer `v1.1.0` image which includes further upstream fixes for scheduled-job bugs. Together this means Explo only ever runs on its own schedule, and remembers what it already did across restarts.
+
+**One-time cleanup:** this fix prevents *future* duplicates, but it won't retroactively merge the duplicate `Weekly-Exploration-2026-WeekXX` playlists already sitting in Navidrome. Delete the extras once, manually, from the Navidrome UI (or via its API) — new runs going forward should stay to one playlist per period.
 
 ---
 

@@ -1,0 +1,27 @@
+# slskd tuning. Copy to $APPDATA_PATH/slskd/slskd.yml
+#
+# No secrets in here: the Soulseek login, web UI login, API key, download
+# folders and the gluetun integration are all set from the stack's .env through
+# environment variables in docker-compose.yml.
+#
+# Careful: slskd lets this file WIN over environment variables. If you keep an
+# older slskd.yml that still has soulseek:/web:/directories: blocks, those old
+# values silently override .env. Start from this file instead.
+
+shares:
+  directories:
+    - /music
+    # never offer half-finished downloads to other users
+    # (adjust if you changed SLSKD_DOWNLOADS_PATH to somewhere outside the default)
+    - "!/music/slskd/incomplete"
+
+transfers:
+  download:
+    slots: 50
+    retry:               # new in slskd 0.26: failed downloads retry on their own
+      partial: resume
+      attempts: 3
+      delay: 5000
+      max_delay: 60000
+  upload:
+    slots: 20

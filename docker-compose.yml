@@ -1,83 +1,173 @@
 services:
+  # ---------------------------------------------------------------------------
+  # VPN gateway. slskd lives inside this container's network namespace.
+  # ---------------------------------------------------------------------------
   gluetun:
-    image: qmcgaw/gluetun:v3.41.1
+    image: qmcgaw/gluetun:v3.41.3
     container_name: gluetun
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
     environment:
-      - VPN_SERVICE_PROVIDER=protonvpn
-      - VPN_TYPE=wireguard
-      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
-      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
-      - SERVER_COUNTRIES=${VPN_COUNTRY:-Switzerland}
-      - TZ=${TZ:-Europe/Zurich}
-      - VPN_PORT_FORWARDING=${VPN_PORT_FORWARDING:-off}
-      - VPN_PORT_FORWARDING_PROVIDER=protonvpn
-      - PORT_FORWARD_ONLY=${VPN_PORT_FORWARDING:-off}
-      - VPN_PORT_FORWARDING_STATUS_FILE=/gluetun/forwarded_port
+      VPN_SERVICE_PROVIDER: protonvpn
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY: ${WIREGUARD_PRIVATE_KEY}
+      WIREGUARD_ADDRESSES: ${WIREGUARD_ADDRESSES}
+      SERVER_COUNTRIES: ${VPN_COUNTRY:-Switzerland}
+      TZ: ${TZ:-Europe/Zurich}
+      # One switch for both containers. Must be true/false: gluetun also accepts
+      # on/off, but slskd reads the same value and only understands true/false.
+      VPN_PORT_FORWARDING: ${PORT_FORWARDING:-false}
+      VPN_PORT_FORWARDING_PROVIDER: protonvpn
+      PORT_FORWARD_ONLY: ${PORT_FORWARDING:-false}
+      # Control server on :8000. slskd polls it (over localhost, they share a
+      # network namespace) to follow the tunnel state and the forwarded port.
+      # Every route needs this key; the port is deliberately NOT published.
+      HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE: '{"auth":"apikey","apikey":"${GLUETUN_API_KEY}"}'
     ports:
-      - 5030:5030
-      - 8000:8000
+      - 5030:5030 # slskd web UI
     volumes:
       - ${APPDATA_PATH}/gluetun:/gluetun
     restart: unless-stopped
     labels:
       - autoheal=true
+
+  # ---------------------------------------------------------------------------
+  # Soulseek client
+  # ---------------------------------------------------------------------------
   slskd:
-    image: slskd/slskd:0.25.1
+    image: slskd/slskd:0.26.0
     container_name: slskd
     network_mode: "service:gluetun"
     depends_on:
       gluetun:
         condition: service_healthy
+        restart: true # compose restarts slskd whenever it restarts gluetun
     environment:
-      - SLSKD_REMOTE_CONFIGURATION=true
+      SLSKD_REMOTE_CONFIGURATION: "true"
+      SLSKD_SLSK_USERNAME: ${SOULSEEK_USERNAME}
+      SLSKD_SLSK_PASSWORD: ${SOULSEEK_PASSWORD}
+      SLSKD_USERNAME: ${SLSKD_WEB_USERNAME}
+      SLSKD_PASSWORD: ${SLSKD_WEB_PASSWORD}
+      SLSKD_API_KEY: ${SLSKD_API_KEY} # used by Explo, the orchestrator and the healthcheck
+      SLSKD_DOWNLOADS_DIR: /downloads
+      SLSKD_INCOMPLETE_DIR: /downloads/incomplete
+      # Native gluetun integration: slskd waits for the tunnel before logging in,
+      # drops the Soulseek session when the tunnel drops, logs back in when it
+      # returns, and (with port forwarding) applies the new listen port itself.
+      SLSKD_VPN: "true"
+      SLSKD_VPN_PORT_FORWARDING: ${PORT_FORWARDING:-false}
+      SLSKD_VPN_GLUETUN_URL: http://localhost:8000
+      SLSKD_VPN_GLUETUN_API_KEY: ${GLUETUN_API_KEY}
     volumes:
       - ${APPDATA_PATH}/slskd:/app
-      - ${MUSIC_PATH}:/downloads
+      - ${SLSKD_DOWNLOADS_PATH:-${MUSIC_PATH}/slskd}:/downloads
       - ${MUSIC_PATH}:/music:ro
+      - ./slskd/healthcheck.sh:/healthcheck.sh:ro
+    healthcheck:
+      # The image's own check only looks at the web server and has a 60 minute
+      # start period. This one follows the Soulseek login (see the script).
+      test: ["CMD", "bash", "/healthcheck.sh"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 3m
     restart: unless-stopped
     labels:
       - autoheal=true
+
+  # ---------------------------------------------------------------------------
+  # Restarts anything labelled autoheal=true once Docker marks it unhealthy
+  # ---------------------------------------------------------------------------
   autoheal:
     image: willfarrell/autoheal:latest
     container_name: autoheal
     restart: unless-stopped
     environment:
-      - AUTOHEAL_CONTAINER_LABEL=autoheal
-      - AUTOHEAL_INTERVAL=30
-      - AUTOHEAL_START_PERIOD=120
-      - AUTOHEAL_DEFAULT_STOP_TIMEOUT=30
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: 30
+      AUTOHEAL_START_PERIOD: 120
+      AUTOHEAL_DEFAULT_STOP_TIMEOUT: 30
+      TZ: ${TZ:-Europe/Zurich}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # ---------------------------------------------------------------------------
+  # Discovery: the Explo image, driven by discovery/discover.py
+  # ---------------------------------------------------------------------------
   explo:
-    image: ghcr.io/lumepart/explo:v1.1.0
+    image: ghcr.io/lumepart/explo:v1.2.0 # discover.py writes Explo's v1.2 playlist cache; re-test before bumping
     container_name: explo
+    entrypoint: ["/bin/sh", "/ainulindale/entrypoint.sh"]
     environment:
-      - TZ=${TZ:-Europe/Zurich}
-      - WEB_UI=false
-      - EXECUTE_ON_START=false
-      - WEEKLY_EXPLORATION_SCHEDULE=15 0 * * 2
-      - WEEKLY_EXPLORATION_FLAGS=--playlist=weekly-exploration --persist
-      - WEEKLY_JAMS_SCHEDULE=30 0 * * 1
-      - WEEKLY_JAMS_FLAGS=--playlist=weekly-jams --persist
-      - DAILY_JAMS_SCHEDULE=15 1 * * *
-      - DAILY_JAMS_FLAGS=--playlist=daily-jams --persist
+      TZ: ${TZ:-Europe/Zurich}
+      # PUID: ${PUID:-99}   # opt-in: run as a normal user instead of root.
+      # PGID: ${PGID:-100}  # chown $APPDATA_PATH/explo and $MUSIC_PATH/explo first.
+
+      # --- schedule -----------------------------------------------------------
+      DISCOVERY_SCHEDULE: ${DISCOVERY_SCHEDULE:-15 0 * * *}
+      RUN_ON_START: ${RUN_ON_START:-false}
+      EXPLO_WEB_UI: ${EXPLO_WEB_UI:-false}
+
+      # --- sources ------------------------------------------------------------
+      DISCOVERY_SERVICE: listenbrainz
+      LISTENBRAINZ_DISCOVERY: playlist
+      LISTENBRAINZ_USER: ${LISTENBRAINZ_USER}
+      LISTENBRAINZ_USER_TOKEN: ${LISTENBRAINZ_USER_TOKEN:-}
+      LASTFM_USER: ${LASTFM_USER:-}
+      LASTFM_API_KEY: ${LASTFM_API_KEY:-}
+      LASTFM_MODE: ${LASTFM_MODE:-always}
+      LASTFM_STATIONS: ${LASTFM_STATIONS:-recommended}
+      LASTFM_TRACKS: ${LASTFM_TRACKS:-30}
+
+      # --- retention ----------------------------------------------------------
+      KEEP_WEEKS: ${KEEP_WEEKS:-2}
+      PRUNE_FILES: ${PRUNE_FILES:-true}
+      KEEP_FAVOURITES: ${KEEP_FAVOURITES:-true}
+      PRUNE_LEGACY_JAMS: ${PRUNE_LEGACY_JAMS:-false}
+
+      # --- Navidrome ----------------------------------------------------------
+      EXPLO_SYSTEM: subsonic
+      SYSTEM_URL: ${NAVIDROME_URL}
+      SYSTEM_USERNAME: ${NAVIDROME_USERNAME}
+      SYSTEM_PASSWORD: ${NAVIDROME_PASSWORD}
+      PLAYLISTNAME_FORMAT: week # the pruner recognises playlists by this naming
+      USE_SUBDIRECTORY: "true"  # one folder per playlist, which is what gets pruned
+
+      # --- downloading --------------------------------------------------------
+      DOWNLOAD_SERVICES: ${DOWNLOAD_SERVICES:-slskd,youtube}
+      SLSKD_URL: http://gluetun:5030 # slskd has no address of its own, it answers on gluetun's
+      SLSKD_API_KEY: ${SLSKD_API_KEY}
+      SLSKD_MIGRATE_DOWNLOADS: "true"
+      REQUIRE_SLSKD: ${REQUIRE_SLSKD:-true}
+      EXTENSIONS: ${EXTENSIONS:-flac,wav,mp3}
+      MIN_BITRATE: ${MIN_BITRATE:-320}
+      MIN_BIT_DEPTH: ${MIN_BIT_DEPTH:-16}
+      TRACK_EXTENSION: mp3
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      SLEEP: 2
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
-      - ${APPDATA_PATH}/explo/.env:/opt/explo/.env
-      - ${APPDATA_PATH}/explo/config:/opt/explo/config
+      - ./discovery:/ainulindale:ro
+      - ${APPDATA_PATH}/explo/config:/opt/explo/config # playlist cache + orchestrator state, must persist
       - ${MUSIC_PATH}/explo:/data
-      - ${MUSIC_PATH}:/slskd
+      - ${SLSKD_DOWNLOADS_PATH:-${MUSIC_PATH}/slskd}:/slskd
+    # ports:
+    #   - 7288:7288 # only with EXPLO_WEB_UI=true
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep crond >/dev/null"]
+      interval: 5m
+      timeout: 5s
     restart: unless-stopped
+
   lidarr:
     image: lscr.io/linuxserver/lidarr:latest
     container_name: lidarr
     environment:
-      - PUID=${PUID:-99}
-      - PGID=${PGID:-100}
-      - TZ=${TZ:-Europe/Zurich}
+      PUID: ${PUID:-99}
+      PGID: ${PGID:-100}
+      TZ: ${TZ:-Europe/Zurich}
     volumes:
       - ${APPDATA_PATH}/lidarr:/config
       - ${MUSIC_PATH}:/music

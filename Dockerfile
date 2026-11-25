@@ -4,6 +4,8 @@ FROM qmcgaw/gluetun:v3.41.3
 
 ENV SLSKD_VERSION=0.26.2 \
     EXPLO_VERSION=v1.2.0 \
+    HTTP_CONTROL_SERVER_LOG=off \
+    SHELL=/bin/bash \
     SLSKD_APP_DIR=/config/slskd \
     SLSKD_DOWNLOADS_DIR=/music/slskd \
     SLSKD_INCOMPLETE_DIR=/music/slskd/incomplete \

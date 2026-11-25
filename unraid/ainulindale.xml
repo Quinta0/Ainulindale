@@ -34,7 +34,7 @@
   <Config Name="Navidrome password" Target="SYSTEM_PASSWORD" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="true"></Config>
 
   <Config Name="ListenBrainz user" Target="LISTENBRAINZ_USER" Default="" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false"></Config>
-  <Config Name="ListenBrainz token" Target="LISTENBRAINZ_USER_TOKEN" Default="" Mode="" Description="Optional" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="ListenBrainz token" Target="LISTENBRAINZ_USER_TOKEN" Default="" Mode="" Description="Optional: from listenbrainz.org/settings; the playlists are public without it" Type="Variable" Display="always" Required="false" Mask="true"></Config>
   <Config Name="Last.fm user" Target="LASTFM_USER" Default="" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false"></Config>
   <Config Name="Last.fm API key" Target="LASTFM_API_KEY" Default="" Mode="" Description="Optional: official-API fallback and album names" Type="Variable" Display="always" Required="false" Mask="true"></Config>
   <Config Name="Last.fm mode" Target="LASTFM_MODE" Default="always" Mode="" Description="always, fallback or off" Type="Variable" Display="always" Required="false" Mask="false">always</Config>
@@ -51,5 +51,5 @@
   <Config Name="Firewall outbound subnets" Target="FIREWALL_OUTBOUND_SUBNETS" Default="" Mode="" Description="Only if the Navidrome URL is a hostname, e.g. 192.168.1.0/24" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="Prune files" Target="PRUNE_FILES" Default="true" Mode="" Description="false removes old playlists but keeps files" Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
   <Config Name="Require slskd" Target="REQUIRE_SLSKD" Default="true" Mode="" Description="Skip a run instead of filling it from YouTube when slskd is down" Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
-  <Config Name="YouTube API key" Target="YOUTUBE_API_KEY" Default="" Mode="" Description="Optional" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="YouTube API key" Target="YOUTUBE_API_KEY" Default="" Mode="" Description="Optional: from listenbrainz.org/settings; the playlists are public without it" Type="Variable" Display="always" Required="false" Mask="true"></Config>
 </Container>

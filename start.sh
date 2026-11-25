@@ -37,6 +37,7 @@ esac
 export VPN_PORT_FORWARDING=$([ $PF = true ] && echo on || echo off)
 export PORT_FORWARD_ONLY=$VPN_PORT_FORWARDING
 export SLSKD_VPN_PORT_FORWARDING=$PF
+unset PORT_FORWARDING # gluetun reads it as a deprecated alias and warns
 
 # --- let Explo reach Navidrome on the LAN through gluetun's firewall --------------
 if [ -z "${FIREWALL_OUTBOUND_SUBNETS:-}" ]; then
@@ -109,6 +110,11 @@ export EXPLO_BIN="$EXPLO_HOME/explo"
 
 # --- 2. slskd, with the watchdog that used to be the autoheal container -----------
 [ -e /config/slskd/slskd.yml ] || cp /ainulindale/slskd.yml /config/slskd/slskd.yml
+mkdir -p "$SLSKD_INCOMPLETE_DIR" "${DOWNLOAD_DIR%/}"
+[ -n "$RUN" ] && chown "$PUID:$PGID" "$SLSKD_DOWNLOADS_DIR" "$SLSKD_INCOMPLETE_DIR" "${DOWNLOAD_DIR%/}"
+if grep -qE '^(directories|soulseek|web):' /config/slskd/slskd.yml; then
+  say "WARN: config/slskd/slskd.yml has directories:/soulseek:/web: blocks; they override .env (old file?)"
+fi
 (
   while :; do
     $RUN "$SLSKD_HOME/slskd" &

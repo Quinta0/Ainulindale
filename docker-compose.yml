@@ -32,6 +32,8 @@ services:
       DISCOVERY_SCHEDULE: ${DISCOVERY_SCHEDULE:-15 0 * * *}
       RUN_ON_START: ${RUN_ON_START:-false}
       EXPLO_WEB_UI: ${EXPLO_WEB_UI:-false}
+      UI_USERNAME: ${EXPLO_WEB_USERNAME:-} # set both, or the Explo UI is open to your LAN
+      UI_PASSWORD: ${EXPLO_WEB_PASSWORD:-}
 
       # --- sources --------------------------------------------------------------
       DISCOVERY_SERVICE: listenbrainz

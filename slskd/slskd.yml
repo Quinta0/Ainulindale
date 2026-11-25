@@ -1,8 +1,8 @@
-# slskd tuning. Copy to $APPDATA_PATH/slskd/slskd.yml
+# slskd tuning. Copied to config/slskd/slskd.yml on first start; edit it there.
 #
 # No secrets in here: the Soulseek login, web UI login, API key, download
 # folders and the gluetun integration are all set from the stack's .env through
-# environment variables in docker-compose.yml.
+# environment variables (docker-compose.yml + start.sh).
 #
 # Careful: slskd lets this file WIN over environment variables. If you keep an
 # older slskd.yml that still has soulseek:/web:/directories: blocks, those old

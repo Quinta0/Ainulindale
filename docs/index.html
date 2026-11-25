@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ainulindale: weekly music discovery for Navidrome, in one container</title>
+<meta name="description" content="One Docker container that finds, downloads and prunes a weekly discovery playlist for Navidrome, through a VPN, from Soulseek.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Geist:wght@400;500&family=Geist+Mono:wght@400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="site.css">
+<script>document.documentElement.classList.add('js');</script>
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav__in">
+    <a class="wordmark" href="#top">ainulindale</a>
+    <nav aria-label="page">
+      <a href="#tick">the tick</a>
+      <a href="#inside">inside</a>
+      <a href="#questions">questions</a>
+      <a class="btn btn--secondary btn--sm" href="https://github.com/Quinta0/Ainulindale">source</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+  <section class="hero">
+    <div class="container hero__grid">
+      <div class="hero__text">
+        <h1>new music, <span class="verb">sung</span> into your library</h1>
+        <p class="lead">One container finds, downloads and prunes a weekly discovery playlist for Navidrome.</p>
+        <div class="actions">
+          <a class="btn btn--primary" href="https://github.com/Quinta0/Ainulindale#setup">read the setup</a>
+          <a class="btn btn--secondary" href="https://github.com/Quinta0/Ainulindale/releases">releases</a>
+        </div>
+      </div>
+
+      <figure class="console well" aria-label="installing ainulindale">
+        <div class="console__bar">
+          <span class="readout">unraid terminal</span>
+          <button class="btn btn--quiet" type="button" data-copy="#install">copy</button>
+        </div>
+<pre class="console__cmd" id="install"><code>cd /mnt/user/appdata/Ainulindale
+wget https://raw.githubusercontent.com/Quinta0/Ainulindale/main/docker-compose.yml
+wget -O .env https://raw.githubusercontent.com/Quinta0/Ainulindale/main/.env.example
+docker compose up -d</code></pre>
+        <ol class="console__log" aria-label="container log">
+          <li style="--i:0">[ainulindale] waiting for the VPN tunnel</li>
+          <li style="--i:1">[ainulindale] VPN is up</li>
+          <li style="--i:2">[ainulindale] downloading slskd 0.26.2</li>
+          <li style="--i:3">[ainulindale] downloading Explo v1.2.0</li>
+          <li style="--i:4">[ainulindale] downloading yt-dlp</li>
+          <li style="--i:5">[ainulindale] discovery tick scheduled: 15 0 * * *</li>
+          <li style="--i:6">[ainulindale] done: listenbrainz=<b>imported</b> lastfm=<b>imported</b></li>
+        </ol>
+        <p class="console__status readout" aria-live="polite" data-copy-status></p>
+      </figure>
+    </div>
+  </section>
+
+  <section class="tick" id="tick">
+    <div class="container">
+      <div class="head split-head">
+        <h2>one tick, every night</h2>
+        <p class="lead">Every step checks state first, so reruns never duplicate.</p>
+      </div>
+
+      <figure class="score well blueprint" data-score>
+        <svg class="score__svg" viewBox="0 0 1200 260" aria-hidden="true" focusable="false">
+          <defs>
+            <clipPath id="sing"><rect class="score__wipe" x="0" y="0" width="1200" height="260"/></clipPath>
+          </defs>
+          <g class="score__staff">
+            <line x1="0" x2="1200" y1="70" y2="70"/><line x1="0" x2="1200" y1="100" y2="100"/>
+            <line x1="0" x2="1200" y1="130" y2="130"/><line x1="0" x2="1200" y1="160" y2="160"/>
+            <line x1="0" x2="1200" y1="190" y2="190"/>
+          </g>
+          <path class="score__ghost" d="M0 160 C 50 160, 60 85, 100 85 S 160 160, 200 160 S 260 115, 300 115 S 360 175, 400 175 S 460 70, 500 70 S 560 145, 600 145 S 660 100, 700 100 S 760 190, 800 190 S 860 130, 900 130 S 960 85, 1000 85 S 1060 175, 1100 175 S 1160 130, 1200 130"/>
+          <g clip-path="url(#sing)">
+            <path class="score__line" d="M0 160 C 50 160, 60 85, 100 85 S 160 160, 200 160 S 260 115, 300 115 S 360 175, 400 175 S 460 70, 500 70 S 560 145, 600 145 S 660 100, 700 100 S 760 190, 800 190 S 860 130, 900 130 S 960 85, 1000 85 S 1060 175, 1100 175 S 1160 130, 1200 130"/>
+          </g>
+          <g class="score__notes">
+            <circle style="--i:0" cx="100" cy="85" r="9"/>
+            <circle style="--i:1" cx="300" cy="115" r="9"/>
+            <circle style="--i:2" cx="500" cy="70" r="9"/>
+            <circle style="--i:3" cx="700" cy="100" r="9"/>
+            <circle style="--i:4" cx="900" cy="130" r="9"/>
+            <circle style="--i:5" cx="1100" cy="175" r="9"/>
+          </g>
+        </svg>
+        <ol class="score__steps">
+          <li style="--i:0"><h3>listenbrainz</h3><p>A new Weekly Exploration?</p><span class="readout">imported, current or waiting</span></li>
+          <li style="--i:1"><h3>last.fm</h3><p>Fresh recommendations.</p><span class="readout">always, fallback or off</span></li>
+          <li style="--i:2"><h3>preflight</h3><p>slskd logged in, or wait.</p><span class="readout">loggedin</span></li>
+          <li style="--i:3"><h3>explo</h3><p>FLAC first, YouTube last.</p><span class="readout">flac, wav, mp3 ≥ 320</span></li>
+          <li style="--i:4"><h3>navidrome</h3><p>The playlist appears.</p><span class="readout">weekly-exploration-2026-week48</span></li>
+          <li style="--i:5"><h3>prune</h3><p>Older weeks go.</p><span class="readout">keep_weeks=2</span></li>
+        </ol>
+      </figure>
+    </div>
+  </section>
+
+  <section class="inside" id="inside">
+    <div class="container">
+      <div class="head">
+        <h2>inside the one container</h2>
+        <p class="lead">Bump a version, restart, done.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">part</th><th scope="col">its job</th><th scope="col">version</th><th scope="col">arrives</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">gluetun</th><td>VPN and kill switch</td><td class="readout">v3.41.3</td><td>base image</td></tr>
+            <tr><th scope="row">slskd</th><td>Soulseek, self-healing</td><td class="readout">0.26.2</td><td>on start</td></tr>
+            <tr><th scope="row">explo</th><td>Downloads, builds playlists</td><td class="readout">v1.2.0</td><td>on start</td></tr>
+            <tr><th scope="row">discover.py</th><td>What, when, and pruning</td><td class="readout">in the image</td><td>each release</td></tr>
+            <tr><th scope="row">yt-dlp</th><td>YouTube fallback</td><td class="readout">latest</td><td>updated nightly</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="keep">
+    <div class="container keep__grid">
+      <div class="keep__text">
+        <h2>star a track to keep it</h2>
+        <p class="lead">Two weeks of discoveries stay. Older ones go, except what you starred or playlisted.</p>
+      </div>
+      <figure class="weeks well" data-weeks aria-label="retention, week 48">
+        <ul class="weeks__list">
+          <li class="week"><span>Weekly-Exploration-2026-Week48</span><span class="readout">new</span></li>
+          <li class="week"><span>Weekly-Exploration-2026-Week47</span><span class="readout">kept</span></li>
+          <li class="week week--old"><span>Weekly-Exploration-2026-Week46</span><span class="readout">pruned</span></li>
+        </ul>
+        <div class="keepers">
+          <span class="keepers__track">one starred track</span>
+          <span class="keepers__dir readout">music/explo/Keepers/</span>
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <section class="questions" id="questions">
+    <div class="container q__grid">
+      <h2>questions</h2>
+      <dl class="rows">
+        <div><dt>how do i update slskd or explo?</dt><dd>Change <code>SLSKD_VERSION</code> or <code>EXPLO_VERSION</code>, restart.</dd></div>
+        <div><dt>what if listenbrainz is down?</dt><dd>It retries next night; Last.fm still delivers.</dd></div>
+        <div><dt>why must navidrome be an ip?</dt><dd>All traffic leaves through the VPN firewall, opened for exactly that address.</dd></div>
+        <div><dt>which machines?</dt><dd>amd64 and arm64. Unraid works as is.</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="close">
+    <div class="container close__grid">
+      <div>
+        <h2>fill in one file</h2>
+        <p class="lead">Logins in <code>.env</code>, then <code>docker compose up -d</code>. API keys generate themselves.</p>
+      </div>
+<figure class="well envfile"><pre><code><span class="c"># the parts only you know</span>
+WIREGUARD_PRIVATE_KEY=
+SOULSEEK_USERNAME=
+SOULSEEK_PASSWORD=
+NAVIDROME_URL=http://192.168.1.10:4533
+NAVIDROME_USERNAME=
+LISTENBRAINZ_USER=
+LASTFM_USER=
+MUSIC_PATH=/mnt/user/data/media/music</code></pre></figure>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="container footer__in">
+    <p class="footer__line">sung once a night, kept by you.</p>
+    <ul class="footer__links">
+      <li><a href="https://github.com/Quinta0/Ainulindale">github</a></li>
+      <li><a href="https://github.com/Quinta0/Ainulindale#troubleshooting">troubleshooting</a></li>
+      <li><a href="https://github.com/Quinta0/Ainulindale/issues">issues</a></li>
+      <li><a href="https://github.com/Quinta0/Ainulindale/blob/main/LICENSE">mit license</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script>
+// one-shot motion: each [data-*] figure plays once when it comes into view
+const io = new IntersectionObserver((es) => es.forEach((e) => {
+  if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); }
+}), { rootMargin: '0px 0px -15% 0px' });
+document.querySelectorAll('.console, [data-score], [data-weeks]').forEach((el) => io.observe(el));
+
+document.querySelectorAll('[data-copy]').forEach((btn) => btn.addEventListener('click', async () => {
+  const status = document.querySelector('[data-copy-status]');
+  try {
+    await navigator.clipboard.writeText(document.querySelector(btn.dataset.copy).innerText);
+    status.textContent = 'copied to the clipboard';
+  } catch { status.textContent = 'select the text to copy it'; }
+}));
+</script>
+</body>
+</html>

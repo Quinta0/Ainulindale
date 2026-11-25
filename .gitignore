@@ -13,3 +13,9 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+
+# Container state (when using the default CONFIG_PATH=./config)
+config/
+
+# Hallmark design-tool scratch
+.hallmark/

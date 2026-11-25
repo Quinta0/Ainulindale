@@ -6,6 +6,8 @@
 A fully self-hosted, automated music discovery and streaming system.  
 No Spotify. No YouTube Music. No ads. Just your music, your server, your rules.
 
+**Site:** [quinta0.github.io/Ainulindale](https://quinta0.github.io/Ainulindale/) · **Image:** `ghcr.io/quinta0/ainulindale`
+
 ---
 
 ## What This Stack Does
@@ -14,19 +16,24 @@ No Spotify. No YouTube Music. No ads. Just your music, your server, your rules.
 - **Discovers** new music every week from **two independent sources**: ListenBrainz Weekly Exploration and Last.fm recommendations. If one of them is down, the other still delivers
 - **Downloads** the discoveries from Soulseek at high quality (FLAC/WAV preferred, 320 kbps minimum), through a VPN
 - **Keeps only this week and last week** of discoveries. Older playlists and their files are removed, except tracks you starred or added to a playlist of your own
-- **Heals itself**: a Soulseek session that drops is reconnected, and a stuck container is restarted, without you noticing
+- **Heals itself**: a Soulseek session that drops is reconnected, and a stuck slskd is restarted, without you noticing
+- **One container.** `ghcr.io/quinta0/ainulindale` runs the VPN, slskd and the discovery schedule together, and downloads slskd and Explo itself on first start
 
 ## Components
 
-| Component | Role |
+Everything except Navidrome runs in **one container**:
+
+| Inside the container | Role |
 |---|---|
-| **Navidrome** | Music server (installed separately, e.g. Unraid Community Apps) |
-| **Gluetun** | VPN gateway. All Soulseek traffic exits via ProtonVPN |
-| **slskd** | Soulseek client, living inside gluetun's network |
-| **autoheal** | Restarts gluetun / slskd when Docker marks them unhealthy |
-| **Explo** | Searches slskd, downloads, builds the Navidrome playlist |
-| **discovery/discover.py** | Runs inside the Explo container and decides *what* Explo imports and *when*; adds Last.fm, outage handling and retention |
-| **Lidarr** | Optional, for whole-album grabs |
+| **gluetun** | The base image. VPN tunnel + kill switch; all traffic exits via ProtonVPN |
+| **slskd** | Soulseek client, downloaded on first start (`SLSKD_VERSION`), watched and restarted by `start.sh` |
+| **Explo** | Searches slskd, downloads, builds the Navidrome playlist (downloaded, `EXPLO_VERSION`) |
+| **discover.py** | Decides *what* Explo imports and *when*; adds Last.fm, outage handling and retention |
+| **yt-dlp** | YouTube fallback, updated every night |
+
+**Navidrome** is installed separately (e.g. Unraid Community Apps).
+
+Updating slskd or Explo is a version bump in `.env`/compose and a restart; the new binary is fetched through the VPN, the old one is deleted. Updating the image (`docker compose pull`) brings a new gluetun and new scripts.
 
 ## How Discovery Works
 
@@ -59,54 +66,49 @@ Before a folder is deleted, every file in it is checked against your **starred t
 Preview it first:
 
 ```bash
-docker exec explo python3 /ainulindale/discover.py prune --dry-run
+docker exec ainulindale python3 /ainulindale/discover.py prune --dry-run
 ```
 
 `PRUNE_FILES=false` removes old playlists but leaves all files on disk.
 
-## Why slskd Stays Connected Now
+## Why slskd Stays Connected
 
-The old setup had three gaps, which together explain "slskd drops and autoheal does nothing":
+1. **The health check looks at Soulseek, not at the web server.** Every minute `slskd/healthcheck.sh` asks slskd whether it is logged in. On a drop it first asks slskd to reconnect; only three failed checks in a row restart slskd. This used to be the job of the separate autoheal container.
+2. **No more stranded network namespace.** slskd used to borrow gluetun's network from a second container, and a gluetun restart left it holding a dead one. In one container there is only one network; if gluetun exits, the whole container exits and Docker's restart policy brings everything back together.
+3. **slskd knows about the VPN.** Its native gluetun integration drops the Soulseek session when the tunnel drops, logs in again when it is back, and applies the forwarded port by itself when port forwarding is on.
 
-1. **slskd's healthcheck never looked at Soulseek.** It only asks whether the web server answers (and the image gives itself a 60 minute start period). Logged out of Soulseek with the UI up counts as healthy, so autoheal had nothing to act on. `slskd/healthcheck.sh` replaces it and reports the Soulseek login state. On a drop it first asks slskd to reconnect; only three failed checks in a row lead to a restart.
-2. **A gluetun restart strands slskd.** slskd borrows gluetun's network namespace. When gluetun restarts, slskd is left holding the old, dead one: localhost still works (so the old check passed) but nothing reaches the internet. The new check notices that gluetun's control server has vanished from localhost and fails, and autoheal restarts slskd into the new namespace.
-3. **slskd did not know about the VPN.** slskd has a native gluetun integration that was not switched on. It now polls gluetun every few seconds, drops the Soulseek session when the tunnel drops, logs in again when it is back, and applies the forwarded port by itself when port forwarding is on.
+When the tunnel itself is down, the check stays green on purpose: restarting slskd cannot fix a VPN, and gluetun repairs its own tunnel.
 
-When the tunnel itself is down, the healthcheck stays green on purpose: restarting slskd cannot fix a VPN, and gluetun repairs its own tunnel.
-
-One thing no healthcheck can fix: **do not log in with the same Soulseek account anywhere else** (Nicotine+, SoulseekQt on a desktop). The server kicks the older session, and the two clients will keep throwing each other out.
+One thing no check can fix: **do not log in with the same Soulseek account anywhere else** (Nicotine+, SoulseekQt on a desktop). The server kicks the older session, and the two clients will keep throwing each other out.
 
 ---
 
 ## Setup
 
-### 1. Clone and configure
+### 1. Two files
 
 ```bash
-git clone https://github.com/Quinta0/Ainulindale
-cd Ainulindale
-cp .env.example .env
+mkdir -p /mnt/user/appdata/Ainulindale && cd /mnt/user/appdata/Ainulindale
+wget https://raw.githubusercontent.com/Quinta0/Ainulindale/main/docker-compose.yml
+wget -O .env https://raw.githubusercontent.com/Quinta0/Ainulindale/main/.env.example
 ```
 
-Everything lives in that one `.env`: VPN key, Soulseek login, Navidrome login, ListenBrainz and Last.fm names, retention. Generate the two internal keys with `openssl rand -hex 24`.
-
-Run `docker compose` from this folder. The compose file mounts `./discovery` and `./slskd/healthcheck.sh` by relative path.
+Fill in `.env`: VPN key, Soulseek login, Navidrome login, ListenBrainz and Last.fm names. The internal API keys are generated for you. Give `NAVIDROME_URL` as an **IP address**: all traffic goes through the VPN's firewall, which is opened for exactly that address.
 
 ### 2. Folders
 
 ```bash
-APPDATA_PATH=/mnt/user/appdata; MUSIC_PATH=/mnt/user/data/media/music    # same as in .env
-mkdir -p $APPDATA_PATH/{gluetun,slskd,explo/config}
+MUSIC_PATH=/mnt/user/data/media/music    # same as in .env
 mkdir -p $MUSIC_PATH/{explo,slskd/incomplete}
 touch $MUSIC_PATH/slskd/incomplete/.ndignore     # Navidrome skips half-downloaded files
-cp slskd/slskd.yml $APPDATA_PATH/slskd/slskd.yml
 ```
 
 ```
-$APPDATA_PATH/
+./config/                      ← created on first start
 ├── gluetun/
-├── slskd/slskd.yml            ← tuning only, no secrets
-└── explo/config/              ← Explo cache + ainulindale-state.json (must persist)
+├── slskd/slskd.yml            ← tuning only, no secrets (seeded on first start)
+├── explo/                     ← Explo cache + ainulindale-state.json (must persist)
+└── bin/                       ← downloaded slskd, Explo, yt-dlp
 
 $MUSIC_PATH/
 ├── slskd/                     ← slskd downloads (manual ones show up in Navidrome from here)
@@ -136,32 +138,43 @@ Link both Last.fm and ListenBrainz in Navidrome's user settings so both services
 
 ```bash
 docker compose up -d
-docker compose ps                         # gluetun and slskd should turn "healthy"
-docker inspect slskd --format '{{range .State.Health.Log}}{{.Output}}{{end}}' | tail -1
-                                          # → ok: Connected, LoggedIn
-docker exec explo python3 /ainulindale/discover.py status
-docker exec explo python3 /ainulindale/discover.py lastfm-preview   # what Last.fm would give you
-docker exec explo python3 /ainulindale/discover.py run              # a full tick now, instead of waiting for 00:15
+docker logs -f ainulindale                # VPN is up → downloading slskd → discovery tick scheduled
+docker exec ainulindale python3 /ainulindale/discover.py status
+docker exec ainulindale python3 /ainulindale/discover.py lastfm-preview   # what Last.fm would give you
+docker exec ainulindale python3 /ainulindale/discover.py run              # a full tick now, instead of waiting for 00:15
 ```
 
-## Migrating From the Previous Version
+## Migrating From the Multi-Container Stack
 
-1. `docker compose down`
-2. **Replace `slskd.yml`.** slskd lets the YAML file override environment variables, so an old file with `soulseek:`, `web:` or `directories:` blocks silently wins over `.env`. Back it up, copy the new one in.
-3. Move your settings from `appdata/explo/.env` into the root `.env` (names differ slightly, see `.env.example`). The old file is no longer read.
-4. Set `GLUETUN_API_KEY` and `SLSKD_API_KEY`. Gluetun's control port 8000 is no longer published on the host; nothing outside the stack needs it.
-5. New downloads land in `music/slskd/`. Existing files stay where they are. Set `SLSKD_DOWNLOADS_PATH=$MUSIC_PATH` to keep the old behaviour.
-6. `docker compose up -d`, then run `prune --dry-run` (above). The first real prune will remove every `Weekly-Exploration-*` week except the newest two, so **star what you want to keep first**. Set `PRUNE_LEGACY_JAMS=true` for one run to clear the old jams playlists and folders.
+The state of the old gluetun, slskd and explo containers moves into one folder; nothing is re-downloaded or re-imported.
 
-The first tick re-creates this week's ListenBrainz playlist once (it has no record of the old setup having imported it). Tracks already on disk are recognised, not downloaded again.
+```bash
+cd /mnt/user/appdata/Ainulindale
+docker compose down                       # stops gluetun, slskd, explo, autoheal (and lidarr, see below)
+APPDATA_PATH=/mnt/user/appdata            # as in your old .env
+mkdir -p config
+mv $APPDATA_PATH/gluetun      config/gluetun
+mv $APPDATA_PATH/slskd        config/slskd
+mv $APPDATA_PATH/explo/config config/explo
+git pull                                  # or fetch the new docker-compose.yml
+docker compose up -d
+```
+
+- `.env` keeps working as is. `GLUETUN_API_KEY` is no longer needed; `VPN_PORT_FORWARDING` is still understood, `PORT_FORWARDING` is the new name.
+- If `NAVIDROME_URL` used a hostname, change it to the IP (or set `FIREWALL_OUTBOUND_SUBNETS`).
+- `SLSKD_DOWNLOADS_PATH` is gone: slskd downloads to `$MUSIC_PATH/slskd`.
+- **Lidarr** is not part of Ainulindale any more. If you use it, install it from Community Apps (`lscr.io/linuxserver/lidarr`, `/config` → `appdata/lidarr`, `/music` → your library) and its data is picked up where it was.
+- `discovery/` and `slskd/healthcheck.sh` are inside the image now; the checked-out copies are no longer mounted.
 
 ## Troubleshooting
 
-**slskd keeps restarting.** `docker inspect slskd --format '{{json .State.Health.Log}}'` shows what the healthcheck saw. "cannot read Soulseek state" means `SLSKD_API_KEY` is not the key slskd is using (old `slskd.yml` still in place?). "logged out of Soulseek" every time, with `docker logs slskd` mentioning another client, means the account is in use elsewhere.
+**slskd keeps restarting.** `docker logs ainulindale | grep 'slskd check failed'` shows what the check saw. "cannot read Soulseek state" means `SLSKD_API_KEY` is not the key slskd is using (old `slskd.yml` still in place?). "logged out of Soulseek" every time, with the log mentioning another client, means the account is in use elsewhere.
 
-**slskd is stuck in "Restarting".** It validates its settings on start and exits on the first bad one; `docker logs slskd --tail 40` names it. Usual causes: `PORT_FORWARDING` set to `on` instead of `true`, a missing `music/slskd/incomplete` folder, an `SLSKD_API_KEY` under 16 characters.
+**slskd exits right after start.** It validates its settings and exits on the first bad one; `docker logs ainulindale --tail 60` names it. Usual causes: a missing `music/slskd/incomplete` folder, an `SLSKD_API_KEY` under 16 characters.
 
-**slskd never logs in, log says it is waiting for the VPN.** `GLUETUN_API_KEY` is empty or differs between the two containers, or `PORT_FORWARDING=true` on a Proton plan/server without port forwarding.
+**slskd never logs in, log says it is waiting for the VPN.** `PORT_FORWARDING=true` on a Proton plan/server without port forwarding.
+
+**Explo cannot reach Navidrome.** The VPN firewall blocks the LAN except `NAVIDROME_URL`'s IP. With a hostname, set `FIREWALL_OUTBOUND_SUBNETS=192.168.1.0/24` (your LAN).
 
 **Tick says "slskd did not log in ... Skipping this run".** Working as intended; it retries on the next tick. `REQUIRE_SLSKD=false` lets runs go ahead on YouTube alone.
 
@@ -169,14 +182,14 @@ The first tick re-creates this week's ListenBrainz playlist once (it has no reco
 
 **Prune says it could not remove a folder.** Files from the old root-owned setup while Explo now runs with `PUID`/`PGID`. `chown -R` the `music/explo` folder.
 
-**Upgrading Explo.** The Last.fm bridge writes Explo's playlist cache (`config/cache/custom-*.json`), an internal format. It is pinned to `v1.2.0`; after bumping, run `discover.py run` once and watch the log. If Explo ever ships Last.fm support itself ([issue #135](https://github.com/LumePart/Explo/issues/135)), the bridge can retire.
+**Upgrading Explo.** The Last.fm bridge writes Explo's playlist cache (`config/cache/custom-*.json`), an internal format. It is pinned with `EXPLO_VERSION=v1.2.0`; after bumping, run `discover.py run` once and watch the log. If Explo ever ships Last.fm support itself ([issue #135](https://github.com/LumePart/Explo/issues/135)), the bridge can retire.
 
 ## Tips
 
 - **ListenBrainz needs a few weeks** of scrobbles before Weekly Exploration appears. Last.fm recommendations work with whatever history your account already has, which makes it a good bridge in the meantime.
 - **Manual downloads**: search in the slskd UI at `http://your-nas-ip:5030`; results land in `music/slskd/`.
 - **Sharing**: slskd shares your library back. The more you share, the better your queue position with other peers.
-- **Port forwarding** noticeably improves Soulseek results. If your Proton plan has it, set `PORT_FORWARDING=true` (one switch for gluetun and slskd; it must be `true`/`false`, slskd does not start on `on`/`off`).
+- **Port forwarding** noticeably improves Soulseek results. If your Proton plan has it, set `PORT_FORWARDING=true` (one switch for gluetun and slskd).
 
 ---
 

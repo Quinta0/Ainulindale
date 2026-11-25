@@ -5,15 +5,14 @@
 #
 #   web API dead                          -> unhealthy (restart)
 #   logged in to Soulseek                 -> healthy
-#   logged out, gluetun unreachable       -> unhealthy: gluetun was restarted and this
-#                                            container is stuck in its old, dead network
-#                                            namespace. Only a restart re-attaches it.
+#   logged out, gluetun unreachable       -> unhealthy: gluetun's control server is gone,
+#                                            nothing slskd can do on its own.
 #   logged out, VPN tunnel down           -> healthy: nothing slskd can do, gluetun heals
 #                                            itself and slskd's VPN integration reconnects.
 #   logged out, VPN fine                  -> ask slskd to reconnect, report unhealthy.
-#                                            Docker needs several failures in a row before it
-#                                            flags the container, so a reconnect that works
-#                                            never causes a restart.
+#                                            start.sh needs three failures in a row before it
+#                                            restarts slskd, so a reconnect that works never
+#                                            causes a restart.
 
 PORT="${SLSKD_HTTP_PORT:-5030}"
 KEY="${SLSKD_API_KEY##*;}"            # tolerate the "role=..;cidr=..;key" form
@@ -37,7 +36,7 @@ fi
 
 if [ "${SLSKD_VPN:-false}" = "true" ]; then
   vpn="$(get --header "X-API-Key: ${SLSKD_VPN_GLUETUN_API_KEY:-}" "${GLUETUN}/v1/publicip/ip")" \
-    || { echo "gluetun control server unreachable: stale network namespace, restart required"; exit 1; }
+    || { echo "gluetun control server unreachable"; exit 1; }
   if [ -z "$(jq -r '.public_ip // empty' <<<"$vpn" 2>/dev/null)" ]; then
     echo "VPN tunnel is down, waiting for gluetun"
     exit 0

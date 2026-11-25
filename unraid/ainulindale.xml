@@ -10,14 +10,15 @@
   <Project>https://quinta0.github.io/Ainulindale/</Project>
   <Overview>Weekly music discovery for Navidrome in one container: a ProtonVPN WireGuard tunnel (gluetun), slskd for Soulseek, and Explo driven by a nightly tick that imports ListenBrainz Weekly Exploration and Last.fm recommendations, then prunes old weeks. Starred tracks are kept.</Overview>
   <Category>MediaApp:Music Downloaders:</Category>
-  <WebUI>http://[IP]:[PORT:5030]/</WebUI>
+  <WebUI>http://[IP]:[PORT:7288]/</WebUI>
   <Icon>https://raw.githubusercontent.com/Quinta0/Ainulindale/main/docs/icon.png</Icon>
   <ExtraParams>--cap-add=NET_ADMIN --device=/dev/net/tun --restart=unless-stopped</ExtraParams>
 
   <Config Name="Config folder" Target="/config" Default="/mnt/user/appdata/Ainulindale/config" Mode="rw" Description="gluetun, slskd and Explo state plus the downloaded binaries" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/Ainulindale/config</Config>
   <Config Name="Music library" Target="/music" Default="/mnt/user/data/media/music" Mode="rw" Description="Shared on Soulseek; downloads go to slskd/ and explo/ inside it" Type="Path" Display="always" Required="true" Mask="false"></Config>
   <Config Name="slskd web UI" Target="5030" Default="5030" Mode="tcp" Description="" Type="Port" Display="always" Required="true" Mask="false">5030</Config>
-  <Config Name="Explo web UI" Target="7288" Default="7288" Mode="tcp" Description="Only with Explo web UI = true" Type="Port" Display="advanced" Required="false" Mask="false">7288</Config>
+  <Config Name="Ainulindale web UI" Target="7288" Default="7288" Mode="tcp" Description="Status, runs and Soulseek search; log in with the slskd web username and password" Type="Port" Display="always" Required="true" Mask="false">7288</Config>
+  <Config Name="Explo web UI port" Target="7289" Default="7289" Mode="tcp" Description="Only with Explo web UI = true" Type="Port" Display="advanced" Required="false" Mask="false">7289</Config>
 
   <Config Name="WireGuard private key" Target="WIREGUARD_PRIVATE_KEY" Default="" Mode="" Description="ProtonVPN: account → VPN → Downloads → WireGuard, a P2P server" Type="Variable" Display="always" Required="true" Mask="true"></Config>
   <Config Name="WireGuard address" Target="WIREGUARD_ADDRESSES" Default="10.2.0.2/32" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">10.2.0.2/32</Config>

@@ -41,11 +41,11 @@ RUN apk add --no-cache bash jq unzip tini su-exec tzdata python3 py3-pip ffmpeg 
  && pip install --no-cache-dir --break-system-packages ytmusicapi \
  && rm -rf /gluetun && ln -s /config/gluetun /gluetun
 
-COPY start.sh discovery/discover.py slskd/healthcheck.sh slskd/slskd.yml /ainulindale/
+COPY start.sh discovery/discover.py slskd/healthcheck.sh slskd/slskd.yml ui/ui.py ui/index.html /ainulindale/
 RUN chmod +x /ainulindale/*.sh
 
 VOLUME /config
-EXPOSE 5030 7288
+EXPOSE 5030 7288 7289
 HEALTHCHECK --interval=60s --timeout=20s --start-period=5m --retries=3 \
   CMD /gluetun-entrypoint healthcheck && wget -q -T 5 -O /dev/null http://localhost:5030/health
 ENTRYPOINT ["/sbin/tini", "-g", "--", "/ainulindale/start.sh"]

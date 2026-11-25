@@ -35,6 +35,18 @@ Everything except Navidrome runs in **one container**:
 
 Updating slskd or Explo is a version bump in `.env`/compose and a restart; the new binary is fetched through the VPN, the old one is deleted. Updating the image (`docker compose pull`) brings a new gluetun and new scripts.
 
+## Web UI
+
+`http://your-nas:7288`, logged in with the slskd web username and password:
+
+- **Status**: VPN address and forwarded port, Soulseek login, whether a tick is running, the last tick's outcome per source
+- **Run a tick now** and **preview pruning** (a dry run)
+- **Playlists**: the discovery playlists currently in Navidrome
+- **Search Soulseek**: lossless and free upload slots first; download one file or the whole folder into `music/slskd/`
+- **Downloads** in progress, and the **discovery log**
+
+Explo's own web UI, when `EXPLO_WEB_UI=true`, moved to port 7289.
+
 ## How Discovery Works
 
 Once a day (`DISCOVERY_SCHEDULE`, default 00:15) the orchestrator runs a **tick**. A tick only does work that is still missing, so it is safe at any frequency and after any restart:

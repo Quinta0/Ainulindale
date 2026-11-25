@@ -136,22 +136,38 @@ fi
 ENV_FILE="${WEB_ENV_PATH:-/config/explo/.env}"
 [ -e "$ENV_FILE" ] || : > "$ENV_FILE" # settings come from the environment, Explo just needs the file
 export -p > /run/ainulindale.env && chmod 600 /run/ainulindale.env
-JOB=". /run/ainulindale.env; cd $EXPLO_HOME && $RUN python3 -u /ainulindale/discover.py run >> /proc/1/fd/1 2>&1"
+
+# One runner for cron and the web UI: environment, Explo's folder, the right user.
+cat > /run/ainulindale-py <<RUNNER
+. /run/ainulindale.env
+cd "$EXPLO_HOME" && exec $RUN python3 -u /ainulindale/discover.py "\$@"
+RUNNER
+# A tick's output goes to the container log and to a file the web UI shows.
+mkdir -p /config/logs
+LOG=/config/logs/discovery.log
+[ "$(stat -c %s $LOG 2>/dev/null || echo 0)" -gt 5000000 ] && mv $LOG $LOG.1
+echo "sh /run/ainulindale-py run 2>&1 | tee -a $LOG >> /proc/1/fd/1" > /run/ainulindale.job
+touch /config/explo/ainulindale.lock
+[ -n "$RUN" ] && chown "$PUID:$PGID" /config/explo/ainulindale.lock
+
 {
-  echo "${DISCOVERY_SCHEDULE:-15 0 * * *} $JOB"
+  echo "${DISCOVERY_SCHEDULE:-15 0 * * *} sh /run/ainulindale.job"
   echo "59 23 * * * $BIN/yt-dlp -U >> /proc/1/fd/1 2>&1"
 } > /etc/crontabs/root
 chmod 600 /etc/crontabs/root
 crond -l 2
 say "discovery tick scheduled: ${DISCOVERY_SCHEDULE:-15 0 * * *} ($(date +%Z))"
 
+# --- 4. web UI (status + Soulseek search), restarted if it ever dies ----------------
+( while :; do python3 -u /ainulindale/ui.py; sleep 5; done ) &
+
 if [ "${EXPLO_WEB_UI:-false}" = true ]; then
-  say "Explo web UI on :7288 (viewing only, do not add schedules there)"
-  (cd "$EXPLO_HOME" && WEB_UI=true $RUN ./explo --config "$ENV_FILE") &
+  say "Explo web UI on :7289 (viewing only, do not add schedules there)"
+  (cd "$EXPLO_HOME" && WEB_UI=true WEB_ADDR=:7289 $RUN ./explo --config "$ENV_FILE") &
 fi
 if [ "${RUN_ON_START:-false}" = true ]; then
   say "RUN_ON_START=true, running one tick now (already-imported weeks are skipped)"
-  sh -c "$JOB" & # discover.py itself waits for slskd to log in
+  sh /run/ainulindale.job & # discover.py itself waits for slskd to log in
 fi
 
 # The container lives as long as the VPN does; restart policy brings it all back.

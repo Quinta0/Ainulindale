@@ -80,5 +80,6 @@ services:
       - ${MUSIC_PATH}:/music             # slskd shares it, downloads to slskd/, Explo files into explo/
     ports:
       - 5030:5030 # slskd web UI
-      - 7288:7288 # Explo web UI, only with EXPLO_WEB_UI=true
+      - 7288:7288 # Ainulindale web UI (status, runs, Soulseek search)
+      - 7289:7289 # Explo web UI, only with EXPLO_WEB_UI=true
     restart: unless-stopped

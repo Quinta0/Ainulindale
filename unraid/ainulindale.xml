@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>ainulindale</Name>
+  <Repository>ghcr.io/quinta0/ainulindale:latest</Repository>
+  <Registry>https://github.com/Quinta0/Ainulindale/pkgs/container/ainulindale</Registry>
+  <Network>bridge</Network>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/Quinta0/Ainulindale/issues</Support>
+  <Project>https://quinta0.github.io/Ainulindale/</Project>
+  <Overview>Weekly music discovery for Navidrome in one container: a ProtonVPN WireGuard tunnel (gluetun), slskd for Soulseek, and Explo driven by a nightly tick that imports ListenBrainz Weekly Exploration and Last.fm recommendations, then prunes old weeks. Starred tracks are kept.</Overview>
+  <Category>MediaApp:Music Downloaders:</Category>
+  <WebUI>http://[IP]:[PORT:5030]/</WebUI>
+  <Icon>https://raw.githubusercontent.com/Quinta0/Ainulindale/main/docs/icon.png</Icon>
+  <ExtraParams>--cap-add=NET_ADMIN --device=/dev/net/tun --restart=unless-stopped</ExtraParams>
+
+  <Config Name="Config folder" Target="/config" Default="/mnt/user/appdata/Ainulindale/config" Mode="rw" Description="gluetun, slskd and Explo state plus the downloaded binaries" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/Ainulindale/config</Config>
+  <Config Name="Music library" Target="/music" Default="/mnt/user/data/media/music" Mode="rw" Description="Shared on Soulseek; downloads go to slskd/ and explo/ inside it" Type="Path" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="slskd web UI" Target="5030" Default="5030" Mode="tcp" Description="" Type="Port" Display="always" Required="true" Mask="false">5030</Config>
+  <Config Name="Explo web UI" Target="7288" Default="7288" Mode="tcp" Description="Only with Explo web UI = true" Type="Port" Display="advanced" Required="false" Mask="false">7288</Config>
+
+  <Config Name="WireGuard private key" Target="WIREGUARD_PRIVATE_KEY" Default="" Mode="" Description="ProtonVPN: account → VPN → Downloads → WireGuard, a P2P server" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="WireGuard address" Target="WIREGUARD_ADDRESSES" Default="10.2.0.2/32" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">10.2.0.2/32</Config>
+  <Config Name="VPN country" Target="SERVER_COUNTRIES" Default="Switzerland" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false">Switzerland</Config>
+  <Config Name="Port forwarding" Target="PORT_FORWARDING" Default="false" Mode="" Description="true if your Proton plan/server supports it; better Soulseek results" Type="Variable" Display="always" Required="false" Mask="false">false</Config>
+
+  <Config Name="Soulseek username" Target="SLSKD_SLSK_USERNAME" Default="" Mode="" Description="Do not use this account anywhere else at the same time" Type="Variable" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="Soulseek password" Target="SLSKD_SLSK_PASSWORD" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="slskd web username" Target="SLSKD_USERNAME" Default="admin" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">admin</Config>
+  <Config Name="slskd web password" Target="SLSKD_PASSWORD" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+
+  <Config Name="Navidrome URL" Target="SYSTEM_URL" Default="http://192.168.1.10:4533" Mode="" Description="Use the LAN IP: the VPN firewall is opened for exactly this address" Type="Variable" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="Navidrome username" Target="SYSTEM_USERNAME" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="Navidrome password" Target="SYSTEM_PASSWORD" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+
+  <Config Name="ListenBrainz user" Target="LISTENBRAINZ_USER" Default="" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="ListenBrainz token" Target="LISTENBRAINZ_USER_TOKEN" Default="" Mode="" Description="Optional" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="Last.fm user" Target="LASTFM_USER" Default="" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="Last.fm API key" Target="LASTFM_API_KEY" Default="" Mode="" Description="Optional: official-API fallback and album names" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="Last.fm mode" Target="LASTFM_MODE" Default="always" Mode="" Description="always, fallback or off" Type="Variable" Display="always" Required="false" Mask="false">always</Config>
+
+  <Config Name="Discovery schedule" Target="DISCOVERY_SCHEDULE" Default="15 0 * * *" Mode="" Description="Cron, in the container's time zone" Type="Variable" Display="always" Required="false" Mask="false">15 0 * * *</Config>
+  <Config Name="Weeks to keep" Target="KEEP_WEEKS" Default="2" Mode="" Description="Per source; older playlists and files are pruned, starred tracks move to Keepers/" Type="Variable" Display="always" Required="false" Mask="false">2</Config>
+
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="slskd and Explo run as this user" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="Explo web UI" Target="EXPLO_WEB_UI" Default="false" Mode="" Description="Viewing only; set a login below when on" Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="Explo web username" Target="UI_USERNAME" Default="" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Explo web password" Target="UI_PASSWORD" Default="" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="Run on start" Target="RUN_ON_START" Default="false" Mode="" Description="One tick at startup; already-imported weeks are skipped" Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="Firewall outbound subnets" Target="FIREWALL_OUTBOUND_SUBNETS" Default="" Mode="" Description="Only if the Navidrome URL is a hostname, e.g. 192.168.1.0/24" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Prune files" Target="PRUNE_FILES" Default="true" Mode="" Description="false removes old playlists but keeps files" Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+  <Config Name="Require slskd" Target="REQUIRE_SLSKD" Default="true" Mode="" Description="Skip a run instead of filling it from YouTube when slskd is down" Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+  <Config Name="YouTube API key" Target="YOUTUBE_API_KEY" Default="" Mode="" Description="Optional" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+</Container>

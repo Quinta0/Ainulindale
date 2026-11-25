@@ -85,6 +85,20 @@ One thing no check can fix: **do not log in with the same Soulseek account anywh
 
 ## Setup
 
+### Unraid: the template (recommended)
+
+Managed by Unraid like any other container: update button, icon, autostart.
+
+```bash
+wget -O /boot/config/plugins/dockerMan/templates-user/my-ainulindale.xml \
+  https://raw.githubusercontent.com/Quinta0/Ainulindale/main/unraid/ainulindale.xml
+```
+
+Docker tab → Add Container → Template: `ainulindale`. Fill in the fields (the advanced view has the rest), Apply. Then follow step 2 (folders) below. New releases show up as "update ready".
+
+### Or: docker compose
+
+
 ### 1. Two files
 
 ```bash

@@ -17,7 +17,24 @@ ENV SLSKD_VERSION=0.26.2 \
     DOWNLOAD_DIR=/music/explo/ \
     WEB_DATA_PATH=/config/explo \
     WEB_ENV_PATH=/config/explo/.env \
-    DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp/dotnet
+    DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp/dotnet \
+    # fixed choices the pipeline depends on, so an Unraid template only asks for your values
+    VPN_SERVICE_PROVIDER=protonvpn \
+    VPN_TYPE=wireguard \
+    VPN_PORT_FORWARDING_PROVIDER=protonvpn \
+    DISCOVERY_SERVICE=listenbrainz \
+    LISTENBRAINZ_DISCOVERY=playlist \
+    EXPLO_SYSTEM=subsonic \
+    PLAYLISTNAME_FORMAT=week \
+    USE_SUBDIRECTORY=true \
+    SLSKD_MIGRATE_DOWNLOADS=true \
+    TRACK_EXTENSION=mp3 \
+    SLEEP=2 \
+    # defaults you may override
+    DOWNLOAD_SERVICES=slskd,youtube \
+    EXTENSIONS=flac,wav,mp3 \
+    MIN_BITRATE=320 \
+    MIN_BIT_DEPTH=16
 
 # runtime for slskd (.NET, musl build), Explo (glibc Go binary + ffmpeg + ytmusicapi) and the scripts
 RUN apk add --no-cache bash jq unzip tini su-exec tzdata python3 py3-pip ffmpeg gcompat icu-libs libstdc++ libgcc \

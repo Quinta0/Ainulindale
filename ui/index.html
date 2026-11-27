@@ -25,6 +25,7 @@
   --radius-card: 10px; --radius-pill: 999px;
 }
 *, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { overflow-x: clip; }
 body { margin: 0; background: var(--color-paper); color: var(--color-ink); font: 400 1rem/1.55 var(--font-body); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
 :focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
@@ -90,9 +91,36 @@ main { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap:
 .dl .done .fill { background: var(--color-live); }
 .empty { color: var(--color-muted); font-size: var(--text-sm); padding-top: var(--space-sm); }
 
+.tabs { display: flex; gap: var(--space-2xs); padding: var(--space-2xs); border: 1px solid var(--color-rule); border-radius: var(--radius-pill); }
+.tabs a { display: inline-flex; align-items: center; min-height: 36px; padding: 0 var(--space-md); border-radius: var(--radius-pill); font-size: var(--text-sm); text-decoration: none; color: var(--color-muted); text-transform: lowercase; transition: background-color var(--dur-short) var(--ease-out), color var(--dur-short) var(--ease-out); }
+.tabs a:hover { color: var(--color-ink); }
+.tabs a[aria-current="page"] { background: var(--color-paper-3); color: var(--color-ink); }
+
+.shelf { padding: var(--space-lg) var(--space-xl) var(--space-xl); max-width: 1680px; margin-inline: auto; display: grid; gap: var(--space-xl); }
+.shelf > p { color: var(--color-muted); }
+.group h2 { margin-bottom: var(--space-md); }
+.group h2 small { font: 400 var(--text-sm) var(--font-body); color: var(--color-muted); text-transform: none; letter-spacing: 0; margin-left: var(--space-sm); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: var(--space-md); }
+.card { background: var(--color-paper-2); border: 1px solid var(--color-rule); border-radius: var(--radius-card); overflow: hidden; min-width: 0; transition: border-color var(--dur-short) var(--ease-out); }
+.card:hover { border-color: var(--color-rule-2); }
+.card:has(details[open]) { grid-column: 1 / -1; }
+.card summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: var(--space-md); align-items: center; padding: var(--space-sm); }
+.card summary::-webkit-details-marker { display: none; }
+.card summary:focus-visible { outline-offset: -2px; border-radius: var(--radius-card); }
+.cover { width: 88px; aspect-ratio: 1; border-radius: 6px; background: var(--color-paper-3); object-fit: cover; display: block; }
+.card .when { font-family: var(--font-display); font-size: 1.5rem; line-height: 1.1; text-transform: lowercase; }
+.card .meta { display: flex; flex-wrap: wrap; gap: 0 var(--space-sm); font-size: var(--text-xs); color: var(--color-muted); margin-top: var(--space-2xs); }
+.card .acts { display: flex; gap: var(--space-xs); margin-top: var(--space-xs); }
+.tracks { list-style: none; margin: 0; padding: 0 var(--space-sm) var(--space-sm); counter-reset: t; columns: 2 420px; column-gap: var(--space-xl); }
+.tracks li { counter-increment: t; display: grid; grid-template-columns: 2.2em minmax(0, 1fr) auto; gap: var(--space-sm); padding: var(--space-xs) 0; border-top: 1px solid var(--color-rule); font-size: var(--text-sm); break-inside: avoid; }
+.tracks li::before { content: counter(t); color: var(--color-muted); font: 400 var(--text-xs)/1.9 var(--font-mono); }
+.tracks .sub { display: block; color: var(--color-muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.tracks .dur { color: var(--color-muted); font: 400 var(--text-xs)/1.9 var(--font-mono); }
+.tracks .star { color: var(--color-accent); }
+
 pre.log { margin: 0; max-height: 360px; overflow: auto; font: 400 var(--text-xs)/1.7 var(--font-mono); color: var(--color-ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 
-@media (max-width: 64rem) { main { grid-template-columns: minmax(0, 1fr); padding-inline: var(--space-md); } .bar { padding-inline: var(--space-md); } }
+@media (max-width: 64rem) { main { grid-template-columns: minmax(0, 1fr); padding-inline: var(--space-md); } .bar, .shelf { padding-inline: var(--space-md); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0.01ms !important; } }
 </style>
 </head>
@@ -100,6 +128,10 @@ pre.log { margin: 0; max-height: 360px; overflow: auto; font: 400 var(--text-xs)
 
 <header class="bar">
   <h1>ainulindale</h1>
+  <nav class="tabs" aria-label="views">
+    <a href="#console" id="tab-console">console</a>
+    <a href="#playlists" id="tab-playlists">playlists</a>
+  </nav>
   <dl>
     <div><dt>vpn</dt><dd id="vpn">…</dd></div>
     <div><dt>soulseek</dt><dd id="slsk">…</dd></div>
@@ -108,7 +140,7 @@ pre.log { margin: 0; max-height: 360px; overflow: auto; font: 400 var(--text-xs)
   <a class="btn btn--secondary btn--small" id="slskd-link" href="#">open slskd</a>
 </header>
 
-<main>
+<main id="view-console">
   <div class="col">
     <section class="well" aria-labelledby="h-search">
       <h2 id="h-search">search soulseek</h2>
@@ -132,11 +164,6 @@ pre.log { margin: 0; max-height: 360px; overflow: auto; font: 400 var(--text-xs)
       <pre class="output mono" id="prune-out" hidden></pre>
     </section>
 
-    <section class="well" aria-labelledby="h-pl">
-      <h2 id="h-pl">playlists</h2>
-      <ul class="list rows" id="playlists"></ul>
-    </section>
-
     <section class="well" aria-labelledby="h-dl">
       <h2 id="h-dl">downloads</h2>
       <ul class="list dl" id="downloads"></ul>
@@ -148,6 +175,10 @@ pre.log { margin: 0; max-height: 360px; overflow: auto; font: 400 var(--text-xs)
     <pre class="log" id="log" tabindex="0"></pre>
   </section>
 </main>
+
+<div class="shelf" id="view-playlists" hidden>
+  <p id="shelf-status" aria-live="polite">loading…</p>
+</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -186,11 +217,6 @@ async function status() {
       ['keeping', `newest ${s.keep_weeks} per source`],
     ];
     $('facts').replaceChildren(...facts.flatMap(([k, v]) => [el('dt', { textContent: k }), el('dd', { textContent: v })]));
-    const pl = s.playlists;
-    $('playlists').replaceChildren(...(pl === null
-      ? [el('li', { className: 'empty', textContent: `navidrome unreachable: ${s.navidrome_error}` })]
-      : pl.length ? pl.map((p) => el('li', {}, el('span', { className: 'name', textContent: p.name }), el('span', { className: 'muted', textContent: `${p.songs} songs` })))
-      : [el('li', { className: 'empty', textContent: 'no discovery playlists yet' })]));
   } catch (e) { $('slsk').textContent = `status failed: ${e.message}`; $('slsk').className = 'warn'; }
 }
 
@@ -282,6 +308,70 @@ async function queue(btn, user, files) {
   } catch (e) { alertLine(`could not queue: ${e.message}`); }
   finally { btn.removeAttribute('aria-busy'); }
 }
+
+/* playlists tab */
+const SOURCES = [ // order on the shelf
+  ['daily', 'daily mix', /^Discovery-Daily-(\d{4})-Day(\d+)$/],
+  ['weekly', 'weekly mix', /^Discovery-Weekly-(\d{4})-Week(\d+)$/],
+  ['monthly', 'monthly mix', /^Discovery-Monthly-(\d{4})-Month(\d+)$/],
+  ['lb', 'weekly exploration', /^Weekly-Exploration-(\d{4})-Week(\d+)$/],
+  ['lastfm', 'last.fm, retired', /^Lastfm-Recommended-(\d{4})-Week(\d+)$/],
+];
+const when = (key, y, n) => {
+  if (key === 'daily') { const d = new Date(Date.UTC(+y, 0, +n)); return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }); }
+  if (key === 'monthly') return new Date(Date.UTC(+y, +n - 1, 1)).toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  return `week ${n}, ${y}`;
+};
+const hms = (sec) => { const m = Math.round(sec / 60); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`; };
+const mmss = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+
+async function shelf() {
+  const view = $('view-playlists');
+  try {
+    const { navidrome, playlists } = await api('/api/playlists');
+    const groups = SOURCES.map(([key, label, rx]) => ({ label, items: playlists.flatMap((p) => {
+      const m = p.name.match(rx); return m ? [{ ...p, key, when: when(key, m[1], m[2]), order: +m[1] * 1000 + +m[2] }] : [];
+    }).sort((a, b) => b.order - a.order) })).filter((g) => g.items.length);
+    if (!groups.length) return view.replaceChildren(el('p', { textContent: 'No discovery playlists in Navidrome yet. They appear here after the first tick imports one.' }));
+    view.replaceChildren(...groups.map((g) => el('section', { className: 'group' },
+      el('h2', {}, g.label, el('small', { textContent: `${g.items.length} playlist${g.items.length > 1 ? 's' : ''}` })),
+      el('div', { className: 'cards' }, ...g.items.map((p) => card(p, navidrome))))));
+  } catch (e) { view.replaceChildren(el('p', { className: 'warn', textContent: `navidrome unreachable: ${e.message}` })); }
+}
+
+function card(p, navidrome) {
+  const img = el('img', { className: 'cover', alt: '', loading: 'lazy', src: `/api/cover?id=${encodeURIComponent(p.cover || `pl-${p.id}`)}` });
+  img.addEventListener('error', () => img.replaceWith(el('div', { className: 'cover' })), { once: true });
+  const list = el('ol', { className: 'tracks' });
+  const details = el('details', {},
+    el('summary', {}, img, el('div', {},
+      el('div', { className: 'when', textContent: p.when }),
+      el('div', { className: 'meta' }, el('span', { textContent: `${p.songs} songs` }), el('span', { textContent: hms(p.duration) })),
+      el('div', { className: 'acts' }, el('a', { className: 'btn btn--secondary btn--small', href: `${navidrome}/app/#/playlist/${p.id}/show`, target: '_blank', rel: 'noopener', textContent: 'open in navidrome' })))),
+    list);
+  details.addEventListener('toggle', async () => {
+    if (!details.open || list.childElementCount) return;
+    list.append(el('li', { className: 'empty', textContent: 'loading…' }));
+    try {
+      const tracks = await api(`/api/playlist?id=${encodeURIComponent(p.id)}`);
+      list.replaceChildren(...tracks.map((t) => el('li', {},
+        el('span', {}, t.title, t.starred ? el('span', { className: 'star', title: 'starred: kept when this playlist is pruned', textContent: ' ★' }) : '',
+          el('span', { className: 'sub', textContent: [t.artist, t.album].filter(Boolean).join(' · ') })),
+        el('span', { className: 'dur', textContent: mmss(t.duration) }))));
+    } catch (e) { list.replaceChildren(el('li', { className: 'warn', textContent: e.message })); }
+  });
+  return el('article', { className: 'card' }, details);
+}
+
+/* views */
+function route() {
+  const pl = location.hash === '#playlists';
+  $('view-console').hidden = pl; $('view-playlists').hidden = !pl;
+  for (const [id, on] of [['tab-console', !pl], ['tab-playlists', pl]]) on ? $(id).setAttribute('aria-current', 'page') : $(id).removeAttribute('aria-current');
+  if (pl) shelf();
+}
+addEventListener('hashchange', route);
+route();
 
 status(); log(); downloads();
 setInterval(() => visible() && status(), 10000);

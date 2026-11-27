@@ -11,6 +11,8 @@ ENV SLSKD_VERSION=0.26.2 \
     SLSKD_INCOMPLETE_DIR=/music/slskd/incomplete \
     SLSKD_REMOTE_CONFIGURATION=true \
     SLSKD_VPN=true \
+    # rescan shares daily, so moved/pruned files stop being offered and new ones are
+    SLSKD_SHARE_CACHE_RETENTION=1440 \
     SLSKD_VPN_GLUETUN_URL=http://localhost:8000 \
     SLSKD_URL=http://localhost:5030 \
     SLSKD_DIR=/music/slskd/ \

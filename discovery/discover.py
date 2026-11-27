@@ -624,11 +624,14 @@ class Navidrome:
     def __init__(self, url: str, user: str, password: str):
         self.url, self.user, self.password = url, user, password
 
-    def call(self, endpoint: str, **params) -> dict:
+    def signed(self, endpoint: str, **params) -> str:
         salt = secrets.token_hex(8)
         params.update({"u": self.user, "s": salt, "t": hashlib.md5((self.password + salt).encode()).hexdigest(),
                        "v": "1.16.1", "c": "ainulindale", "f": "json"})
-        resp = http_json(f"{self.url}/rest/{endpoint}", params=params, timeout=30).get("subsonic-response", {})
+        return f"{self.url}/rest/{endpoint}?{urllib.parse.urlencode(params)}"
+
+    def call(self, endpoint: str, **params) -> dict:
+        resp = http_json(self.signed(endpoint, **params), timeout=30).get("subsonic-response", {})
         if resp.get("status") != "ok":
             raise HttpError(f"Navidrome {endpoint}: {resp.get('error', {}).get('message', 'failed')}")
         return resp

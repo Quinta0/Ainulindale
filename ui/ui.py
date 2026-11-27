@@ -14,6 +14,7 @@ import fcntl
 import hmac
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.parse
@@ -70,17 +71,22 @@ def status() -> dict:
         out["vpn"] = {"ip": ip.get("public_ip"), "country": ip.get("country"), "port": port.get("port")}
     except (d.HttpError, AttributeError):
         out["vpn"] = None
-    nd = d.navidrome()
-    try:
-        fams = [rx for _, rx, _, _ in d.families()]
-        out["playlists"] = sorted(
-            ({"name": p["name"], "songs": p.get("songCount", 0)} for p in (nd.playlists() if nd else [])
-             if any(rx.match(p["name"]) for rx in fams)),
-            key=lambda p: p["name"], reverse=True)
-    except d.HttpError as e:
-        out["playlists"] = None
-        out["navidrome_error"] = str(e)
     return out
+
+
+def playlists() -> dict:
+    nd = d.navidrome()
+    fams = [rx for _, rx, _, _ in d.families()]
+    return {"navidrome": d.NAVIDROME_URL, "playlists": [
+        {"id": p["id"], "name": p["name"], "songs": p.get("songCount", 0), "duration": p.get("duration", 0),
+         "created": p.get("created", ""), "cover": p.get("coverArt", "")}
+        for p in (nd.playlists() if nd else []) if any(rx.match(p["name"]) for rx in fams)]}
+
+
+def playlist_tracks(pid: str) -> list:
+    return [{"title": t.get("title", ""), "artist": t.get("artist", ""), "album": t.get("album", ""),
+             "duration": t.get("duration", 0), "starred": bool(t.get("starred"))}
+            for t in d.navidrome().playlist_entries(pid)]
 
 
 def log_tail(lines: int = 200) -> str:
@@ -169,6 +175,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, search_results(str(uuid.UUID(q["id"][0]))))
             if url.path == "/api/downloads":
                 return self.send(200, downloads())
+            if url.path == "/api/playlists":
+                return self.send(200, playlists())
+            if url.path == "/api/playlist":
+                return self.send(200, playlist_tracks(q["id"][0]))
+            if url.path == "/api/cover":  # proxied so the Navidrome login never reaches the browser
+                cid = q["id"][0]
+                if not re.fullmatch(r"[\w-]{1,80}", cid) or not d.navidrome():
+                    return self.send(400, {"error": "bad cover id"})
+                with d.urllib.request.urlopen(d.navidrome().signed("getCoverArt", id=cid, size=300), timeout=20) as r:
+                    img, ctype = r.read(), r.headers.get("Content-Type", "image/jpeg")
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Cache-Control", "private, max-age=86400")
+                self.end_headers()
+                return self.wfile.write(img)
             self.send(404, {"error": "not found"})
         except Exception as e:  # noqa: BLE001 - one bad backend call must not kill the page
             self.send(502, {"error": f"{type(e).__name__}: {e}"})

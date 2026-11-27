@@ -41,7 +41,7 @@ Updating slskd or Explo is a version bump in `.env`/compose and a restart; the n
 
 - **Status**: VPN address and forwarded port, Soulseek login, whether a tick is running, the last tick's outcome per source
 - **Run a tick now** and **preview pruning** (a dry run)
-- **Playlists**: the discovery playlists currently in Navidrome
+- **Playlists** tab: every discovery playlist in Navidrome as a card, grouped by source, with its cover; open one for the track list (★ marks starred tracks, which survive pruning) or jump to it in Navidrome
 - **Search Soulseek**: lossless and free upload slots first; download one file or the whole folder into `music/slskd/`
 - **Downloads** in progress, and the **discovery log**
 

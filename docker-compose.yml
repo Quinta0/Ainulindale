@@ -40,11 +40,9 @@ services:
       LISTENBRAINZ_DISCOVERY: playlist
       LISTENBRAINZ_USER: ${LISTENBRAINZ_USER}
       LISTENBRAINZ_USER_TOKEN: ${LISTENBRAINZ_USER_TOKEN:-}
-      LASTFM_USER: ${LASTFM_USER:-}
-      LASTFM_API_KEY: ${LASTFM_API_KEY:-}
-      LASTFM_MODE: ${LASTFM_MODE:-always}
-      LASTFM_STATIONS: ${LASTFM_STATIONS:-recommended}
-      LASTFM_TRACKS: ${LASTFM_TRACKS:-30}
+      DISCOVERY_MIXES: ${DISCOVERY_MIXES:-weekly} # daily, weekly, monthly; ":N" sets the track count
+      DISCOVERY_AVOID_TAGS: ${DISCOVERY_AVOID_TAGS:-}
+      DISCOVERY_PREFER_TAGS: ${DISCOVERY_PREFER_TAGS:-}
 
       # --- retention ------------------------------------------------------------
       KEEP_WEEKS: ${KEEP_WEEKS:-2}

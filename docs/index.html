@@ -54,7 +54,7 @@ docker compose up -d</code></pre>
           <li style="--i:3">[ainulindale] downloading Explo v1.2.0</li>
           <li style="--i:4">[ainulindale] downloading yt-dlp</li>
           <li style="--i:5">[ainulindale] discovery tick scheduled: 15 0 * * *</li>
-          <li style="--i:6">[ainulindale] done: listenbrainz=<b>imported</b> lastfm=<b>imported</b></li>
+          <li style="--i:6">[ainulindale] done: listenbrainz=<b>imported</b> weekly=<b>imported</b></li>
         </ol>
         <p class="console__status readout" aria-live="polite" data-copy-status></p>
       </figure>
@@ -93,7 +93,7 @@ docker compose up -d</code></pre>
         </svg>
         <ol class="score__steps">
           <li style="--i:0"><h3>listenbrainz</h3><p>A new Weekly Exploration?</p><span class="readout">imported, current or waiting</span></li>
-          <li style="--i:1"><h3>last.fm</h3><p>Fresh recommendations.</p><span class="readout">always, fallback or off</span></li>
+          <li style="--i:1"><h3>mixes</h3><p>Our own picks, near or far.</p><span class="readout">daily, weekly or monthly</span></li>
           <li style="--i:2"><h3>preflight</h3><p>slskd logged in, or wait.</p><span class="readout">loggedin</span></li>
           <li style="--i:3"><h3>explo</h3><p>FLAC first, YouTube last.</p><span class="readout">flac, wav, mp3 ≥ 320</span></li>
           <li style="--i:4"><h3>navidrome</h3><p>The playlist appears.</p><span class="readout">weekly-exploration-2026-week48</span></li>
@@ -149,7 +149,7 @@ docker compose up -d</code></pre>
       <h2>questions</h2>
       <dl class="rows">
         <div><dt>how do i update slskd or explo?</dt><dd>Change <code>SLSKD_VERSION</code> or <code>EXPLO_VERSION</code>, restart.</dd></div>
-        <div><dt>what if listenbrainz is down?</dt><dd>It retries next night; Last.fm still delivers.</dd></div>
+        <div><dt>what if listenbrainz is down?</dt><dd>It retries next night; the mixes run on cached lookups.</dd></div>
         <div><dt>why must navidrome be an ip?</dt><dd>All traffic leaves through the VPN firewall, opened for exactly that address.</dd></div>
         <div><dt>which machines?</dt><dd>amd64 and arm64. Unraid works as is.</dd></div>
       </dl>
@@ -169,7 +169,7 @@ SOULSEEK_PASSWORD=
 NAVIDROME_URL=http://192.168.1.10:4533
 NAVIDROME_USERNAME=
 LISTENBRAINZ_USER=
-LASTFM_USER=
+LISTENBRAINZ_USER_TOKEN=
 MUSIC_PATH=/mnt/user/data/media/music</code></pre></figure>
     </div>
   </section>

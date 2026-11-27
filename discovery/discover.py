@@ -9,15 +9,16 @@ binary instead of Explo's built-in cron. One idempotent "tick" does this:
                  Explo would silently fall back to YouTube for the whole week.
   2. ListenBrainz  import Weekly Exploration, but only if ListenBrainz has
                  published a playlist we have not imported yet.
-  3. Last.fm     build a playlist from Last.fm recommendations and hand it to
-                 Explo as a "custom" playlist (always, or only as a fallback).
-  4. Prune       keep the newest N weeks per source, remove older playlists
+  3. Mixes       build our own daily / weekly / monthly discovery playlists from
+                 ListenBrainz data (similar artists, popularity) and hand them to
+                 Explo as "custom" playlists. Lookups are cached in SQLite.
+  4. Prune       keep the newest N playlists per source, remove older ones
                  and their files; starred / playlisted tracks are rescued.
 
 Because every step checks state first, the tick can run as often as you like
 and after any restart without ever producing duplicates.
 
-Usage:  discover.py run | status | prune [--dry-run] | lastfm-preview
+Usage:  discover.py run | status | prune [--dry-run] | preview [daily|weekly|monthly]
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ import random
 import re
 import secrets
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -73,13 +75,11 @@ LB_TOKEN = env("LISTENBRAINZ_USER_TOKEN")
 LB_ENABLED = env_bool("LISTENBRAINZ_ENABLED", True)
 LB_MAX_ATTEMPTS = env_int("LISTENBRAINZ_MAX_ATTEMPTS", 3)
 
-LASTFM_USER = env("LASTFM_USER")
-LASTFM_API_KEY = env("LASTFM_API_KEY")
-LASTFM_MODE = env("LASTFM_MODE", "always").lower()  # always | fallback | off
-LASTFM_STATIONS = [s for s in env("LASTFM_STATIONS", "recommended").split(",") if s.strip()]
-LASTFM_TRACKS = env_int("LASTFM_TRACKS", 30)
-LASTFM_FALLBACK_DAY = env_int("LASTFM_FALLBACK_DAY", 3)  # ISO weekday, 3 = Wednesday
-LASTFM_HISTORY = 1000  # remembered recommendations, so weeks do not repeat each other
+DB_FILE = os.path.join(CONFIG_DIR, "ainulindale.db")  # ListenBrainz/MusicBrainz cache + pick history
+DISCOVERY_MIXES = env("DISCOVERY_MIXES", "weekly")  # e.g. daily,weekly:40,monthly
+AVOID_TAGS = {t.strip().lower() for t in env("DISCOVERY_AVOID_TAGS").split(",") if t.strip()}
+PREFER_TAGS = {t.strip().lower() for t in env("DISCOVERY_PREFER_TAGS").split(",") if t.strip()}
+ARTIST_COOLDOWN_DAYS = env_int("DISCOVERY_ARTIST_COOLDOWN_DAYS", 90)  # a recommended artist rests this long
 
 NAVIDROME_URL = env("SYSTEM_URL").rstrip("/")
 NAVIDROME_USER = env("SYSTEM_USERNAME")
@@ -97,7 +97,7 @@ KEEP_FAVOURITES = env_bool("KEEP_FAVOURITES", True)
 PRUNE_LEGACY_JAMS = env_bool("PRUNE_LEGACY_JAMS", False)
 EXPLO_TIMEOUT_MIN = env_int("EXPLO_TIMEOUT_MINUTES", 480)
 
-USER_AGENT = "Mozilla/5.0 (compatible; Ainulindale/2.0; +https://github.com/Quinta0/Ainulindale)"
+USER_AGENT = "Ainulindale/2.1 ( https://github.com/Quinta0/Ainulindale )"  # the format LB and MB ask for
 AUDIO_EXT = {".flac", ".wav", ".mp3", ".m4a", ".ogg", ".opus", ".aac", ".wma", ".aiff", ".ape"}
 
 
@@ -154,8 +154,8 @@ def load_state() -> dict:
     except (OSError, ValueError):
         state = {}
     state.setdefault("listenbrainz", {})
-    state.setdefault("lastfm", {})
-    state["lastfm"].setdefault("history", [])
+    state.setdefault("mixes", {})
+    state.pop("lastfm", None)  # pre-2.1 state
     return state
 
 
@@ -276,129 +276,283 @@ def lb_is_fresh(state: dict) -> bool:
 
 
 # --------------------------------------------------------------------------
-# Last.fm
+# Discovery mixes: our own recommendations, built from ListenBrainz data
 # --------------------------------------------------------------------------
+#
+# seeds (artists you play) -> similar artists, hop after hop -> minus artists you
+# already know -> one track each (+ whole albums on the slower mixes).
+# The slower the mix, the further it walks from your seeds and the less obvious
+# the tracks it takes: daily stays close, monthly wanders.
+
+LB_API = "https://api.listenbrainz.org/1"
+LB_SIMILAR = "https://labs.api.listenbrainz.org/similar-artists/json"
+LB_SIMILAR_ALGO = "session_based_days_7500_session_300_contribution_5_threshold_10_limit_100_filter_True_skip_30"
+MB_API = "https://musicbrainz.org/ws/2"
+
+
+class Mix:
+    def __init__(self, name, period, tracks, seed_range, seeds, hops, rank, albums):
+        self.name, self.period, self.tracks = name, period, tracks
+        self.seed_range, self.seeds = seed_range, seeds  # LB stats range, how many seed artists to draw
+        self.hops = hops      # (min, max) distance from your seeds a pick may come from
+        self.rank = rank      # slice of an artist's most played tracks to pick from: (0, 3) = the hits
+        self.albums = albums  # whole albums added on top of the single tracks
+
+    def slot(self, d: dt.date | None = None) -> tuple[int, int, str]:
+        d = d or dt.date.today()
+        if self.period == "day":
+            return d.year, d.timetuple().tm_yday, "Day"
+        if self.period == "month":
+            return d.year, d.month, "Month"
+        return (*iso_week(d), "Week")
+
+    def ids(self, d: dt.date | None = None) -> tuple[str, str]:
+        y, n, unit = self.slot(d)
+        # digits only after the prefix: Explo title-cases the id to build the download folder name
+        return f"custom-{self.name}-{y}-{n}", f"Discovery-{self.name.title()}-{y}-{unit}{n}"
+
+
+PRESETS = {
+    "daily": Mix("daily", "day", 15, "week", 8, (1, 1), (0, 3), 0),
+    "weekly": Mix("weekly", "week", 30, "month", 12, (1, 2), (0, 10), 1),
+    "monthly": Mix("monthly", "month", 40, "half_yearly", 15, (2, 3), (3, 25), 2),
+}
+
+
+def configured_mixes() -> list[Mix]:
+    out = []
+    for item in DISCOVERY_MIXES.lower().split(","):
+        name, _, n = item.strip().partition(":")
+        if name in ("", "off", "none"):
+            continue
+        if name not in PRESETS:
+            log(f"DISCOVERY_MIXES: unknown mix '{name}' (daily, weekly, monthly)")
+            continue
+        p = PRESETS[name]
+        out.append(Mix(p.name, p.period, int(n) if n.isdigit() else p.tracks, p.seed_range, p.seeds,
+                       p.hops, p.rank, p.albums))
+    return out
 
 
 def track_key(artist: str, title: str) -> str:
     return re.sub(r"[^\w]+", "", f"{artist}|{title}".lower(), flags=re.UNICODE)
 
 
-def lastfm_station(user: str, station: str, want: int, seen: set[str]) -> list[dict]:
-    """
-    Last.fm's own recommendation engine, via the JSON the website player uses.
-    Undocumented but public and stable for years; every call returns a fresh
-    batch, so we poll until we have enough unseen tracks.
-    """
-    url = f"https://www.last.fm/player/station/user/{urllib.parse.quote(user)}/{station}"
-    out: list[dict] = []
-    dry = 0
-    for _ in range(25):
-        if len(out) >= want or dry >= 3:
-            break
-        batch = http_json(url, timeout=30).get("playlist", [])
-        if not batch:
-            break
-        added = 0
-        for t in batch:
-            title = (t.get("name") or t.get("_name") or "").strip()
-            artists = [a.get("name") or a.get("_name") or "" for a in t.get("artists", [])]
-            artists = [a.strip() for a in artists if a.strip()]
-            if not title or not artists:
-                continue
-            key = track_key(artists[0], title)
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append({"title": title, "artist": ", ".join(artists), "mainArtist": artists[0], "release": ""})
-            added += 1
-        dry = 0 if added else dry + 1
-        time.sleep(1)
-    return out[:want]
+_db = None
 
 
-def lastfm_api(method: str, **params) -> dict:
-    params.update({"method": method, "api_key": LASTFM_API_KEY, "format": "json"})
-    data = http_json("https://ws.audioscrobbler.com/2.0/", params=params, timeout=20)
-    if "error" in data:
-        raise HttpError(f"Last.fm API error {data['error']}: {data.get('message')}")
-    time.sleep(0.25)  # stay well under the 5 req/s limit
+def db():
+    global _db
+    if _db is None:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        _db = sqlite3.connect(DB_FILE, timeout=30)
+        _db.executescript("""
+            CREATE TABLE IF NOT EXISTS cache (url TEXT PRIMARY KEY, at REAL, body TEXT);
+            CREATE TABLE IF NOT EXISTS picks (kind TEXT, id TEXT, at REAL, PRIMARY KEY (kind, id));
+        """)
+        _db.execute("DELETE FROM cache WHERE at < ?", (time.time() - 365 * 86400,))
+        _db.commit()
+    return _db
+
+
+def cached(url: str, ttl_days: float, **params):
+    """GET with a SQLite cache. A stale copy beats nothing when the service is down."""
+    key = f"{url}?{urllib.parse.urlencode(sorted(params.items()))}"
+    row = db().execute("SELECT at, body FROM cache WHERE url = ?", (key,)).fetchone()
+    if row and time.time() - row[0] < ttl_days * 86400:
+        return json.loads(row[1])
+    headers = {"Authorization": f"Token {LB_TOKEN}"} if LB_TOKEN and "listenbrainz.org" in url else {}
+    try:
+        data = http_json(url, params=params, headers=headers, timeout=30, allow_empty=True)
+    except HttpError:
+        if row:
+            return json.loads(row[1])
+        raise
+    finally:
+        time.sleep(1)  # LB and MB both ask for at most one call per second
+    db().execute("INSERT OR REPLACE INTO cache VALUES (?, ?, ?)", (key, time.time(), json.dumps(data)))
+    db().commit()
     return data
 
 
-def lastfm_similar(user: str, want: int, seen: set[str]) -> list[dict]:
-    """
-    Fallback built only on the official API: artists similar to what you played
-    in the last 3 months, minus every artist you already know, one top track each.
-    """
-    known = set()
-    for page in (1, 2):
-        top = lastfm_api("user.gettopartists", user=user, period="overall", limit=1000, page=page)
-        artists = top.get("topartists", {}).get("artist", [])
-        known.update(a["name"].lower() for a in artists)
-        if len(artists) < 1000:
-            break
-    recent = lastfm_api("user.gettopartists", user=user, period="3month", limit=30)
-    scores: dict[str, float] = {}
-    for seed in recent.get("topartists", {}).get("artist", []):
-        try:
-            sim = lastfm_api("artist.getsimilar", artist=seed["name"], limit=15, autocorrect=1)
-        except HttpError:
-            continue
-        for a in sim.get("similarartists", {}).get("artist", []):
-            if a["name"].lower() not in known:
-                scores[a["name"]] = scores.get(a["name"], 0.0) + float(a.get("match") or 0)
-    ranked = sorted(scores, key=scores.get, reverse=True)
-    out: list[dict] = []
-    for artist in ranked:
-        if len(out) >= want:
-            break
-        try:
-            top = lastfm_api("artist.gettoptracks", artist=artist, limit=5, autocorrect=1)
-        except HttpError:
-            continue
-        candidates = [t["name"] for t in top.get("toptracks", {}).get("track", []) if t.get("name")]
-        random.shuffle(candidates)
-        for title in candidates:
-            key = track_key(artist, title)
-            if key not in seen:
-                seen.add(key)
-                out.append({"title": title, "artist": artist, "mainArtist": artist, "release": ""})
-                break
+def weighted_sample(weights: dict, k: int, rng: random.Random) -> list:
+    """k distinct keys, likelier the heavier they are. ponytail: O(k*n), fine for a few hundred artists."""
+    pool = {key: max(w, 1e-9) for key, w in weights.items()}
+    out = []
+    while pool and len(out) < k:
+        key = rng.choices(list(pool), weights=list(pool.values()))[0]
+        out.append(key)
+        del pool[key]
     return out
 
 
-def lastfm_fill_albums(tracks: list[dict]) -> None:
-    """Optional nicety when an API key is present: album names make Explo's matching stricter."""
-    for t in tracks:
+def lb_top_artists(rng_name: str, count: int = 100, offset: int = 0) -> list[dict]:
+    data = cached(f"{LB_API}/stats/user/{urllib.parse.quote(LB_USER)}/artists", 1,
+                  range=rng_name, count=count, offset=offset)
+    return (data or {}).get("payload", {}).get("artists", [])
+
+
+def similar_artists(mbid: str) -> list[tuple[str, str, float]]:
+    """(mbid, name, similarity 0..1) for one artist, best first."""
+    rows = [(a["artist_mbid"], a.get("name", ""), float(a.get("score") or 0))
+            for a in cached(LB_SIMILAR, 30, artist_mbids=mbid, algorithm=LB_SIMILAR_ALGO) or []
+            if a.get("artist_mbid") and a["artist_mbid"] != mbid]
+    top = max((s for *_, s in rows), default=0) or 1
+    return [(m, n, s / top) for m, n, s in rows[:40]]
+
+
+def top_recordings(mbid: str) -> list[dict]:
+    return cached(f"{LB_API}/popularity/top-recordings-for-artist/{mbid}", 30) or []
+
+
+def top_album(mbid: str) -> dict | None:
+    groups = cached(f"{LB_API}/popularity/top-release-groups-for-artist/{mbid}", 30) or []
+    for g in groups:
+        rg = g.get("release_group", {})
+        if rg.get("type") == "Album" and rg.get("caa_release_mbid"):
+            return g
+    return None
+
+
+def album_tracks(release_mbid: str) -> list[dict]:
+    rel = cached(f"{MB_API}/release/{release_mbid}", 365, inc="recordings", fmt="json") or {}
+    return [t for m in rel.get("media", []) for t in m.get("tracks", [])]
+
+
+def artist_tags(mbid: str) -> set[str]:
+    a = cached(f"{MB_API}/artist/{mbid}", 90, inc="tags+genres", fmt="json") or {}
+    return {t["name"].lower() for t in a.get("tags", []) + a.get("genres", []) if t.get("name")}
+
+
+def known_artists() -> tuple[set[str], set[str]]:
+    """MBIDs and lower-cased names of everyone you have played or own."""
+    mbids, names = set(), set()
+    for page in range(5):
+        artists = lb_top_artists("all_time", 1000, page * 1000)
+        for a in artists:
+            names.add(a.get("artist_name", "").lower())
+            mbids.update(filter(None, [a.get("artist_mbid")] + (a.get("artist_mbids") or [])))
+        if len(artists) < 1000:
+            break
+    nd = navidrome()
+    if nd:
         try:
-            info = lastfm_api("track.getinfo", artist=t["mainArtist"], track=t["title"], autocorrect=1)
-            t["release"] = info.get("track", {}).get("album", {}).get("title", "") or ""
-        except HttpError:
-            pass
+            for a in nd.artists():
+                names.add(a.get("name", "").lower())
+                if a.get("musicBrainzId"):
+                    mbids.add(a["musicBrainzId"])
+        except HttpError as e:
+            log(f"discovery: could not read the Navidrome library ({e}); only ListenBrainz history is excluded")
+    names.discard("")
+    return mbids, names
 
 
-def lastfm_recommendations(state: dict, want: int) -> list[dict]:
-    seen = set(state["lastfm"]["history"])
+def recently_picked(kind: str, days: float | None = None) -> set[str]:
+    since = 0 if days is None else time.time() - days * 86400
+    return {r[0] for r in db().execute("SELECT id FROM picks WHERE kind = ? AND at >= ?", (kind, since))}
+
+
+def remember_picks(tracks: list[dict]) -> None:
+    now = time.time()
+    rows = [(k, v, now) for t in tracks for k, v in (("artist", t["_artist_mbid"]), ("recording", t["mbTrackId"]))
+            if v]
+    db().executemany("INSERT OR REPLACE INTO picks VALUES (?, ?, ?)", rows)
+    db().commit()
+
+
+def walk(seeds: dict[str, float], hops: int, fanout: int, rng: random.Random) -> dict[str, dict]:
+    """Breadth-first through similar artists: {mbid: {'name', 'hop', 'score'}} for everything reached."""
+    found: dict[str, dict] = {}
+    visited = set(seeds)
+    frontier = dict(seeds)
+    for hop in range(1, hops + 1):
+        nxt: dict[str, float] = {}
+        names: dict[str, str] = {}
+        for m in weighted_sample(frontier, fanout, rng):
+            try:
+                sims = similar_artists(m)
+            except HttpError as e:
+                log(f"discovery: similar artists for {m} failed: {e}")
+                continue
+            for sm, name, s in sims:
+                if sm not in visited:
+                    nxt[sm] = max(nxt.get(sm, 0.0), frontier[m] * s)
+                    names[sm] = name
+        if not nxt:
+            break
+        top = max(nxt.values())
+        frontier = {m: w / top for m, w in nxt.items()}
+        for m, w in frontier.items():
+            found[m] = {"name": names[m], "hop": hop, "score": w}
+        visited |= set(nxt)
+    return found
+
+
+def build_mix(mix: Mix, rng: random.Random | None = None) -> list[dict]:
+    rng = rng or random.Random()
+    top = lb_top_artists(mix.seed_range) or lb_top_artists("all_time")
+    seeds = {a["artist_mbid"]: float(a.get("listen_count") or 1) for a in top if a.get("artist_mbid")}
+    if not seeds:
+        log("discovery: ListenBrainz has no artist statistics for you yet")
+        return []
+    seeds = {m: seeds[m] for m in weighted_sample(seeds, mix.seeds, rng)}
+    log(f"discovery {mix.name}: walking {mix.hops[1]} hop(s) out from {len(seeds)} seed artists")
+
+    known_mbids, known_names = known_artists()
+    resting = recently_picked("artist", ARTIST_COOLDOWN_DAYS)
+    lo, hi = mix.hops
+    pool = {m: c for m, c in walk(seeds, hi, max(mix.seeds, 10), rng).items()
+            if lo <= c["hop"] <= hi and m not in known_mbids and m not in resting
+            and c["name"].lower() not in known_names}
+    if AVOID_TAGS or PREFER_TAGS:  # tags cost one MusicBrainz call per artist, so only the likeliest 80
+        checked = {}
+        for m in sorted(pool, key=lambda m: pool[m]["score"], reverse=True)[:80]:
+            try:
+                tags = artist_tags(m)
+            except HttpError:
+                tags = set()
+            if not tags & AVOID_TAGS:
+                checked[m] = dict(pool[m], score=pool[m]["score"] * (3 if tags & PREFER_TAGS else 1))
+        pool = checked
+    log(f"discovery {mix.name}: {len(pool)} new artists in reach")
+
+    played = recently_picked("recording")
     tracks: list[dict] = []
-    for station in LASTFM_STATIONS:
-        if len(tracks) >= want:
+    keys: set[str] = set()
+    albums = 0
+    singles = 0
+    for m in weighted_sample({m: c["score"] for m, c in pool.items()}, len(pool), rng):
+        if singles >= mix.tracks and albums >= mix.albums:
             break
         try:
-            got = lastfm_station(LASTFM_USER, station.strip(), want - len(tracks), seen)
-            log(f"Last.fm station '{station}': {len(got)} new tracks")
-            tracks += got
+            if albums < mix.albums and (g := top_album(m)):
+                artist = g.get("artist", {}).get("name") or pool[m]["name"]
+                album = g["release_group"].get("name", "")
+                got = [{"title": t.get("title", ""), "artist": artist, "mainArtist": artist, "release": album,
+                        "mbTrackId": t.get("recording", {}).get("id", ""), "_artist_mbid": m}
+                       for t in album_tracks(g["release_group"]["caa_release_mbid"])]
+                if 3 <= len(got) <= 25:  # an album, not a single or a box set
+                    log(f"discovery {mix.name}: album {artist} - {album}")
+                    tracks += got
+                    albums += 1
+                    continue
+            if singles >= mix.tracks:
+                continue
+            recs = [r for r in top_recordings(m) if r.get("recording_mbid") not in played]
+            window = recs[mix.rank[0]:mix.rank[1]] or recs[:mix.rank[1]]
+            rng.shuffle(window)
+            for r in window:
+                artist, title = r.get("artist_name", ""), r.get("recording_name", "")
+                k = track_key(artist, title)
+                if artist and title and k not in keys:
+                    keys.add(k)
+                    tracks.append({"title": title, "artist": artist, "mainArtist": artist,
+                                   "release": r.get("release_name", ""), "mbTrackId": r["recording_mbid"],
+                                   "_artist_mbid": m})
+                    singles += 1
+                    break
         except HttpError as e:
-            log(f"Last.fm station '{station}' failed: {e}")
-    if len(tracks) < want and LASTFM_API_KEY:
-        try:
-            got = lastfm_similar(LASTFM_USER, want - len(tracks), seen)
-            log(f"Last.fm similar-artists (API): {len(got)} new tracks")
-            tracks += got
-        except HttpError as e:
-            log(f"Last.fm API fallback failed: {e}")
-    if tracks and LASTFM_API_KEY:
-        lastfm_fill_albums(tracks)
+            log(f"discovery: skipping artist {m}: {e}")
     return tracks
 
 
@@ -410,12 +564,6 @@ def lastfm_recommendations(state: dict, want: int) -> list[dict]:
 def lb_playlist_name(d: dt.date | None = None) -> str:
     y, w = iso_week(d)
     return f"Weekly-Exploration-{y}-Week{w}"  # exactly how Explo names it with --replace-playlist=false
-
-
-def lastfm_ids(d: dt.date | None = None) -> tuple[str, str]:
-    y, w = iso_week(d)
-    # digits only after the prefix: Explo title-cases the id to build the download folder name
-    return f"custom-lastfm-{y}-{w}", f"Lastfm-Recommended-{y}-Week{w}"
 
 
 def register_custom_playlist(pid: str, name: str, tracks: list[dict]) -> None:
@@ -433,7 +581,7 @@ def register_custom_playlist(pid: str, name: str, tracks: list[dict]) -> None:
     except (OSError, ValueError):
         meta = []
     meta = [m for m in meta if m.get("id") != pid]
-    meta.append({"id": pid, "name": name, "source": "lastfm", "refresh_days": 0,
+    meta.append({"id": pid, "name": name, "source": "ainulindale", "refresh_days": 0,
                  "last_fetched": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2, ensure_ascii=False)
@@ -491,6 +639,10 @@ class Navidrome:
     def playlist_entries(self, pid: str) -> list[dict]:
         return self.call("getPlaylist", id=pid).get("playlist", {}).get("entry", []) or []
 
+    def artists(self) -> list[dict]:
+        idx = self.call("getArtists").get("artists", {}).get("index", []) or []
+        return [a for i in idx for a in i.get("artist", []) or []]
+
     def starred(self) -> list[dict]:
         return self.call("getStarred2").get("starred2", {}).get("song", []) or []
 
@@ -517,10 +669,16 @@ def families() -> list[tuple[str, re.Pattern, re.Pattern, int]]:
         ("ListenBrainz weekly exploration",
          re.compile(r"^Weekly-Exploration-(\d{4})-Week(\d{1,2})$"),
          re.compile(r"^Weekly-Exploration-(\d{4})-Week(\d{1,2})$"), KEEP_WEEKS),
-        ("Last.fm recommendations",
+        # pre-2.1 Last.fm playlists: no new ones are made, so they all go (starred tracks are rescued)
+        ("old Last.fm recommendations",
          re.compile(r"^Lastfm-Recommended-(\d{4})-Week(\d{1,2})$"),
-         re.compile(r"^custom-lastfm-(\d{4})-(\d{1,2})$", re.I), KEEP_WEEKS),
+         re.compile(r"^custom-lastfm-(\d{4})-(\d{1,2})$", re.I), 0),
     ]
+    for m in PRESETS.values():  # every preset, enabled or not, so a mix you switch off still ages out
+        unit = {"day": "Day", "week": "Week", "month": "Month"}[m.period]
+        fams.append((f"{m.name} discovery mix",
+                     re.compile(rf"^Discovery-{m.name.title()}-(\d{{4}})-{unit}(\d{{1,3}})$"),
+                     re.compile(rf"^custom-{m.name}-(\d{{4}})-(\d{{1,3}})$", re.I), KEEP_WEEKS))
     if PRUNE_LEGACY_JAMS:
         jams = re.compile(r"^(?:Weekly|Daily)-Jams(?:-(\d{4})-(?:Week|Day)(\d{1,3}))?$")
         fams.append(("legacy jams", jams, jams, 0))
@@ -641,9 +799,9 @@ def prune(dry: bool = False) -> None:
                 nd.delete_playlist(p["id"])
             except HttpError as e:
                 log(f"  failed: {e}")
-            m = re.match(r"^Lastfm-Recommended-(\d{4})-Week(\d{1,2})$", p["name"])
+            m = re.match(r"^(?:Discovery-(\w+)|Lastfm-Recommended)-(\d{4})-[A-Za-z]+(\d{1,3})$", p["name"])
             if m:  # forget the matching entry in Explo's custom playlist registry
-                unregister_custom_playlist(f"custom-lastfm-{m.group(1)}-{int(m.group(2))}")
+                unregister_custom_playlist(f"custom-{(m.group(1) or 'lastfm').lower()}-{m.group(2)}-{int(m.group(3))}")
 
     if PRUNE_FILES:
         for d in doomed_folders:
@@ -714,36 +872,32 @@ def step_listenbrainz(state: dict) -> str:
     return "imported"
 
 
-def step_lastfm(state: dict, lb_status: str) -> str:
-    if LASTFM_MODE == "off" or not LASTFM_USER:
+def step_mix(state: dict, mix: Mix) -> str:
+    """Returns: imported | current | failed | disabled"""
+    if not (LB_USER and LB_TOKEN):
+        log(f"discovery {mix.name}: needs LISTENBRAINZ_USER and LISTENBRAINZ_USER_TOKEN")
         return "disabled"
-    lf = state["lastfm"]
-    if lf.get("week") == week_key():
-        log("Last.fm: this week's playlist already exists")
+    st = state["mixes"].setdefault(mix.name, {})
+    pid, name = mix.ids()
+    if st.get("playlist") == name:
         return "current"
-    if LASTFM_MODE == "fallback":
-        if lb_status in ("imported", "current"):
-            return "not needed"
-        if dt.date.today().isoweekday() < LASTFM_FALLBACK_DAY:
-            log("Last.fm fallback: giving ListenBrainz a little longer before stepping in")
-            return "waiting"
-        log(f"Last.fm fallback: ListenBrainz is '{lb_status}', stepping in")
-
-    tracks = lastfm_recommendations(state, LASTFM_TRACKS)
-    if len(tracks) < min(5, LASTFM_TRACKS):
-        log(f"Last.fm gave only {len(tracks)} usable tracks; will retry on the next tick")
+    try:
+        tracks = build_mix(mix)
+    except HttpError as e:
+        log(f"discovery {mix.name}: ListenBrainz is not answering: {e}")
+        return "failed"
+    if len(tracks) < min(5, mix.tracks):
+        log(f"discovery {mix.name}: only {len(tracks)} usable tracks; will retry on the next tick")
         return "failed"
     if not slskd_ready():
         return "failed"
-
-    pid, name = lastfm_ids()
     register_custom_playlist(pid, name, tracks)
     rc = run_explo(f"--playlist={pid}")  # replace-playlist defaults to true: a re-run overwrites, never duplicates
     if rc != 0:
-        log(f"Explo exited with code {rc} on the Last.fm import")
+        log(f"Explo exited with code {rc} on {name}")
         return "failed"
-    lf["week"] = week_key()
-    lf["history"] = (lf["history"] + [track_key(t["mainArtist"], t["title"]) for t in tracks])[-LASTFM_HISTORY:]
+    remember_picks(tracks)
+    st.update({"playlist": name, "tracks": len(tracks), "imported_at": dt.datetime.now().isoformat(timespec="seconds")})
     save_state(state)
     return "imported"
 
@@ -751,25 +905,24 @@ def step_lastfm(state: dict, lb_status: str) -> str:
 def tick() -> int:
     state = load_state()
     lb_status = step_listenbrainz(state)
-    lf_status = step_lastfm(state, lb_status)
+    mixes = {m.name: step_mix(state, m) for m in configured_mixes()}
     try:
         prune()
     except Exception as e:  # pruning must never take the run down with it
         log(f"prune failed: {type(e).__name__}: {e}")
     state = load_state()
     state["last_tick"] = {"at": dt.datetime.now().isoformat(timespec="seconds"),
-                          "listenbrainz": lb_status, "lastfm": lf_status}
+                          "listenbrainz": lb_status, "mixes": mixes}
     save_state(state)
-    log(f"done: listenbrainz={lb_status} lastfm={lf_status}")
-    return 75 if "failed" in (lb_status, lf_status) else 0
+    log("done: " + " ".join(f"{k}={v}" for k, v in {"listenbrainz": lb_status, **mixes}.items()))
+    return 75 if "failed" in (lb_status, *mixes.values()) else 0
 
 
 def status() -> int:
-    state = load_state()
-    print(json.dumps({k: v for k, v in state.items() if k != "lastfm"}, indent=2))
-    lf = dict(state["lastfm"])
-    lf["history"] = f"{len(lf.get('history', []))} remembered tracks"
-    print(json.dumps({"lastfm": lf}, indent=2))
+    print(json.dumps(load_state(), indent=2))
+    n, = db().execute("SELECT COUNT(*) FROM cache").fetchone()
+    picks = dict(db().execute("SELECT kind, COUNT(*) FROM picks GROUP BY kind").fetchall())
+    print(f"cache: {n} lookups, history: {picks.get('artist', 0)} artists / {picks.get('recording', 0)} tracks")
     if USES_SLSKD and SLSKD_URL and SLSKD_API_KEY:
         try:
             print("slskd:", Slskd(SLSKD_URL, SLSKD_API_KEY).server_state().get("state"))
@@ -787,11 +940,12 @@ def main() -> int:
     cmd = sys.argv[1] if len(sys.argv) > 1 else "run"
     if cmd == "status":
         return status()
-    if cmd == "lastfm-preview":
-        if not LASTFM_USER:
-            print("LASTFM_USER is not set")
+    if cmd == "preview":  # what a mix would pick right now; nothing is downloaded or remembered
+        mix = PRESETS.get(sys.argv[2] if len(sys.argv) > 2 else "weekly")
+        if not (mix and LB_USER and LB_TOKEN):
+            print("usage: preview [daily|weekly|monthly], with LISTENBRAINZ_USER and LISTENBRAINZ_USER_TOKEN set")
             return 2
-        for t in lastfm_recommendations(load_state(), LASTFM_TRACKS):
+        for t in build_mix(mix):
             print(f"{t['artist']} - {t['title']}" + (f"  [{t['release']}]" if t["release"] else ""))
         return 0
     if cmd not in ("run", "prune"):

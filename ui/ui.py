@@ -59,7 +59,6 @@ def tick_running() -> bool:
 def status() -> dict:
     out: dict = {"state": d.load_state(), "schedule": os.environ.get("DISCOVERY_SCHEDULE", "15 0 * * *"),
                  "running": tick_running(), "keep_weeks": d.KEEP_WEEKS}
-    out["state"]["lastfm"] = {k: v for k, v in out["state"]["lastfm"].items() if k != "history"}
     try:
         out["slskd"] = slskd.server_state().get("state")
     except d.HttpError as e:

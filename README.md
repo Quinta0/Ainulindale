@@ -13,7 +13,7 @@ No Spotify. No YouTube Music. No ads. Just your music, your server, your rules.
 ## What This Stack Does
 
 - **Streams** your library to any device through Navidrome
-- **Discovers** new music every week from **two independent sources**: ListenBrainz Weekly Exploration and Last.fm recommendations. If one of them is down, the other still delivers
+- **Discovers** new music from ListenBrainz: its own Weekly Exploration, plus **our own discovery mixes** (daily, weekly, monthly) built from ListenBrainz data with our own rules. The slower the mix, the further it wanders from what you already play
 - **Downloads** the discoveries from Soulseek at high quality (FLAC/WAV preferred, 320 kbps minimum), through a VPN
 - **Keeps only this week and last week** of discoveries. Older playlists and their files are removed, except tracks you starred or added to a playlist of your own
 - **Heals itself**: a Soulseek session that drops is reconnected, and a stuck slskd is restarted, without you noticing
@@ -28,7 +28,7 @@ Everything except Navidrome runs in **one container**:
 | **gluetun** | The base image. VPN tunnel + kill switch; all traffic exits via ProtonVPN |
 | **slskd** | Soulseek client, downloaded on first start (`SLSKD_VERSION`), watched and restarted by `start.sh` |
 | **Explo** | Searches slskd, downloads, builds the Navidrome playlist (downloaded, `EXPLO_VERSION`) |
-| **discover.py** | Decides *what* Explo imports and *when*; adds Last.fm, outage handling and retention |
+| **discover.py** | Decides *what* Explo imports and *when*; builds the discovery mixes, handles outages and retention |
 | **yt-dlp** | YouTube fallback, updated every night |
 
 **Navidrome** is installed separately (e.g. Unraid Community Apps).
@@ -56,29 +56,37 @@ tick
  ├─ ListenBrainz: is there a Weekly Exploration playlist I have not imported yet?
  │     yes → check slskd is logged in → Explo imports it → "Weekly-Exploration-2026-Week38"
  │     no  → nothing to do            LB down → note it, try again next tick
- ├─ Last.fm: does this week's playlist exist yet?
- │     no  → pull recommendations → hand them to Explo → "Lastfm-Recommended-2026-Week38"
+ ├─ Mixes: does today's / this week's / this month's playlist exist yet?
+ │     no  → walk similar artists → pick tracks → hand them to Explo → "Discovery-Weekly-2026-Week38"
  └─ Prune: keep the newest KEEP_WEEKS per source, remove the rest
 ```
 
 Things worth knowing:
 
 - **ListenBrainz is tracked by playlist ID, not by calendar.** If ListenBrainz publishes late, or is down on Tuesday, the playlist is simply picked up on the first tick after it appears. If it never appears, last week's playlist is *not* re-imported under a new name. A playlist that keeps failing is attempted 3 times, then left alone.
-- **Last.fm recommendations** come from the same feed the Last.fm website player uses (`last.fm/player/station/user/<you>/recommended`). It is public, needs no login, and returns Last.fm's own picks of artists you have not played. It is not an official API, so with `LASTFM_API_KEY` set there is a second path built purely on the official API (artists similar to your last three months, minus everyone you already know). Tracks recommended in earlier weeks are remembered and not repeated.
-- **`LASTFM_MODE`**: `always` gives you two playlists a week; `fallback` only steps in, from Wednesday on, in weeks where ListenBrainz has produced nothing; `off` disables it.
+- **Discovery mixes** are built here, not by a service. Seeds are artists from your ListenBrainz stats; from them the mix walks through ListenBrainz's similar-artist graph, drops everyone you have listened to or have in Navidrome, and takes a track per new artist from ListenBrainz's popularity data. The slower the mix, the deeper it goes:
+
+  | `DISCOVERY_MIXES` | Every | Tracks | Seeds from | Distance from your artists | Tracks taken | Whole albums |
+  |---|---|---|---|---|---|---|
+  | `daily` | day | 15 | last week | 1 step | the hits | – |
+  | `weekly` | week | 30 | last month | 1–2 steps | top 10 | 1 |
+  | `monthly` | month | 40 | last 6 months | 2–3 steps | deep cuts (top 3 skipped) | 2 |
+
+  Turn on any combination (`daily,weekly,monthly`); `weekly:40` changes a mix's track count. Seeds and picks are drawn at random, weighted by how much you play them and how similar they are, so two runs never look alike. A recommended artist rests for `DISCOVERY_ARTIST_COOLDOWN_DAYS` (90) and a track is never recommended twice. `DISCOVERY_AVOID_TAGS` / `DISCOVERY_PREFER_TAGS` filter and steer by MusicBrainz genres. `LISTENBRAINZ_USER_TOKEN` is required.
+- **Lookups are cached** in `config/explo/ainulindale.db` (SQLite): similar artists and popular tracks for 30 days, albums for a year, your stats for a day. Calls are spaced a second apart as ListenBrainz and MusicBrainz ask, so the first run of a mix takes a few minutes and later runs are nearly free. If ListenBrainz is down, the cached copy is used.
 - **slskd preflight.** Before Explo starts, the orchestrator checks that slskd is really logged in to Soulseek and nudges it if not. If it stays down, the run is postponed to the next tick. Without this, one bad night means fifty YouTube rips instead of fifty FLACs.
 - **No jams.** Weekly Jams and Daily Jams are gone. `PRUNE_LEGACY_JAMS=true` cleans up what the old setup left behind.
 
 ### Retention
 
-With `KEEP_WEEKS=2` you always have this week's and last week's playlist per source. On each tick, anything older goes: the Navidrome playlist and the matching folder under `music/explo/`.
+With `KEEP_WEEKS=2` you always have the newest two playlists per source: two weeks of Weekly Exploration and of the weekly mix, two days of the daily mix, two months of the monthly one. On each tick, anything older goes: the Navidrome playlist and the matching folder under `music/explo/`.
 
-Before a folder is deleted, every file in it is checked against your **starred tracks and every playlist that is staying**. Matches are moved to `music/explo/Keepers/` instead of deleted, so starring a track is how you say "keep this one". Only folders the pipeline created (`Weekly-Exploration-*`, `Custom-Lastfm-*`) are ever touched.
+Before a folder is deleted, every file in it is checked against your **starred tracks and every playlist that is staying**. Matches are moved to `music/explo/Keepers/` instead of deleted, so starring a track is how you say "keep this one". Only folders the pipeline created (`Weekly-Exploration-*`, `Custom-Daily-*`, `Custom-Weekly-*`, `Custom-Monthly-*`) are ever touched.
 
 Preview it first:
 
 ```bash
-docker exec ainulindale python3 /ainulindale/discover.py prune --dry-run
+docker exec ainulindale sh /run/ainulindale-py prune --dry-run
 ```
 
 `PRUNE_FILES=false` removes old playlists but leaves all files on disk.
@@ -119,7 +127,7 @@ wget https://raw.githubusercontent.com/Quinta0/Ainulindale/main/docker-compose.y
 wget -O .env https://raw.githubusercontent.com/Quinta0/Ainulindale/main/.env.example
 ```
 
-Fill in `.env`: VPN key, Soulseek login, Navidrome login, ListenBrainz and Last.fm names. The internal API keys are generated for you. Give `NAVIDROME_URL` as an **IP address**: all traffic goes through the VPN's firewall, which is opened for exactly that address.
+Fill in `.env`: VPN key, Soulseek login, Navidrome login, ListenBrainz name and token. The internal API keys are generated for you. Give `NAVIDROME_URL` as an **IP address**: all traffic goes through the VPN's firewall, which is opened for exactly that address.
 
 ### 2. Folders
 
@@ -141,7 +149,7 @@ $MUSIC_PATH/
 │   └── incomplete/
 ├── explo/
 │   ├── Weekly-Exploration-2026-Week38/
-│   ├── Custom-Lastfm-2026-38/
+│   ├── Custom-Weekly-2026-38/
 │   └── Keepers/               ← rescued favourites
 └── (your library)
 ```
@@ -154,20 +162,19 @@ $MUSIC_PATH/
 
 | Variable | Value |
 |---|---|
-| `ND_LASTFM_ENABLED` | `true` |
-| `ND_LASTFM_APIKEY` / `ND_LASTFM_SECRET` | your Last.fm API key and secret |
+| `ND_LISTENBRAINZ_ENABLED` | `true` |
 | `ND_SCANSCHEDULE` | `1m` |
 
-Link both Last.fm and ListenBrainz in Navidrome's user settings so both services learn from what you play.
+Link ListenBrainz in Navidrome's user settings: everything the mixes and Weekly Exploration know about you comes from those scrobbles.
 
 ### 5. Start and verify
 
 ```bash
 docker compose up -d
 docker logs -f ainulindale                # VPN is up → downloading slskd → discovery tick scheduled
-docker exec ainulindale python3 /ainulindale/discover.py status
-docker exec ainulindale python3 /ainulindale/discover.py lastfm-preview   # what Last.fm would give you
-docker exec ainulindale python3 /ainulindale/discover.py run              # a full tick now, instead of waiting for 00:15
+docker exec ainulindale sh /run/ainulindale-py status         # runs as PUID, like the nightly tick
+docker exec ainulindale sh /run/ainulindale-py preview weekly   # what a mix would pick now; nothing is downloaded
+docker exec ainulindale sh /run/ainulindale-py run            # a full tick now, instead of waiting for 00:15
 ```
 
 ## Migrating From the Multi-Container Stack
@@ -204,15 +211,16 @@ docker compose up -d
 
 **Tick says "slskd did not log in ... Skipping this run".** Working as intended; it retries on the next tick. `REQUIRE_SLSKD=false` lets runs go ahead on YouTube alone.
 
-**Last.fm gives 0 tracks.** Open `https://www.last.fm/player/station/user/<you>/recommended` in a browser. Empty JSON means the account has too few scrobbles, or the profile's listening data is private. Set `LASTFM_API_KEY` to enable the API-based path.
+**A mix gives 0 tracks.** "no artist statistics" means ListenBrainz has not computed your stats yet (new accounts: give it a day of scrobbles). "HTTP 401" means `LISTENBRAINZ_USER_TOKEN` is missing or wrong. Few "new artists in reach" means your avoid tags are strict, or the cooldown has used up the neighbourhood; the monthly mix reaches further.
 
 **Prune says it could not remove a folder.** Files from the old root-owned setup while Explo now runs with `PUID`/`PGID`. `chown -R` the `music/explo` folder.
 
-**Upgrading Explo.** The Last.fm bridge writes Explo's playlist cache (`config/cache/custom-*.json`), an internal format. It is pinned with `EXPLO_VERSION=v1.2.0`; after bumping, run `discover.py run` once and watch the log. If Explo ever ships Last.fm support itself ([issue #135](https://github.com/LumePart/Explo/issues/135)), the bridge can retire.
+**Upgrading Explo.** The mixes write Explo's playlist cache (`config/cache/custom-*.json`), an internal format. It is pinned with `EXPLO_VERSION=v1.2.0`; after bumping, run `discover.py run` once and watch the log.
 
 ## Tips
 
-- **ListenBrainz needs a few weeks** of scrobbles before Weekly Exploration appears. Last.fm recommendations work with whatever history your account already has, which makes it a good bridge in the meantime.
+- **ListenBrainz needs a few weeks** of scrobbles before Weekly Exploration appears. The mixes only need your artist stats, which come after about a day, so they bridge the gap.
+- **Upgrading from Last.fm (2.0):** the old `Lastfm-Recommended-*` playlists and `Custom-Lastfm-*` folders are removed on the first tick. Star what you want to keep first; `discover.py prune --dry-run` shows what goes. `LASTFM_*` settings can be deleted.
 - **Manual downloads**: search in the slskd UI at `http://your-nas-ip:5030`; results land in `music/slskd/`.
 - **Sharing**: slskd shares your library back. The more you share, the better your queue position with other peers.
 - **Port forwarding** noticeably improves Soulseek results. If your Proton plan has it, set `PORT_FORWARDING=true` (one switch for gluetun and slskd).

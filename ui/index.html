@@ -177,13 +177,13 @@ async function status() {
     $('running').textContent = s.running ? 'running' : 'idle';
     $('running').className = s.running ? 'live' : '';
     $('run').disabled = s.running;
-    const lt = s.state.last_tick || {}, lb = s.state.listenbrainz || {}, lf = s.state.lastfm || {};
+    const lt = s.state.last_tick || {}, lb = s.state.listenbrainz || {}, mx = s.state.mixes || {};
     const facts = [
       ['schedule', s.schedule],
       ['last tick', lt.at ? lt.at.replace('T', ' ') : 'never'],
       ['listenbrainz', `${lt.listenbrainz || '-'}${lb.imported_date ? `, playlist of ${lb.imported_date.slice(0, 10)}` : ''}`],
-      ['last.fm', `${lt.lastfm || '-'}${lf.week ? `, ${lf.week}` : ''}`],
-      ['keeping', `${s.keep_weeks} weeks per source`],
+      ...Object.entries(lt.mixes || {}).map(([k, v]) => [`${k} mix`, `${v}${mx[k]?.playlist ? `, ${mx[k].playlist}` : ''}`]),
+      ['keeping', `newest ${s.keep_weeks} per source`],
     ];
     $('facts').replaceChildren(...facts.flatMap(([k, v]) => [el('dt', { textContent: k }), el('dd', { textContent: v })]));
     const pl = s.playlists;

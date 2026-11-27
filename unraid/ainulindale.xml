@@ -8,7 +8,7 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/Quinta0/Ainulindale/issues</Support>
   <Project>https://quinta0.github.io/Ainulindale/</Project>
-  <Overview>Weekly music discovery for Navidrome in one container: a ProtonVPN WireGuard tunnel (gluetun), slskd for Soulseek, and Explo driven by a nightly tick that imports ListenBrainz Weekly Exploration and Last.fm recommendations, then prunes old weeks. Starred tracks are kept.</Overview>
+  <Overview>Weekly music discovery for Navidrome in one container: a ProtonVPN WireGuard tunnel (gluetun), slskd for Soulseek, and Explo driven by a nightly tick that imports ListenBrainz Weekly Exploration plus its own daily/weekly/monthly discovery mixes built from ListenBrainz data, then prunes old playlists. Starred tracks are kept.</Overview>
   <Category>MediaApp:Music Downloaders:</Category>
   <WebUI>http://[IP]:[PORT:7288]/</WebUI>
   <Icon>https://raw.githubusercontent.com/Quinta0/Ainulindale/main/docs/icon.png</Icon>
@@ -35,13 +35,13 @@
   <Config Name="Navidrome password" Target="SYSTEM_PASSWORD" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="true"></Config>
 
   <Config Name="ListenBrainz user" Target="LISTENBRAINZ_USER" Default="" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false"></Config>
-  <Config Name="ListenBrainz token" Target="LISTENBRAINZ_USER_TOKEN" Default="" Mode="" Description="Optional: from listenbrainz.org/settings; the playlists are public without it" Type="Variable" Display="always" Required="false" Mask="true"></Config>
-  <Config Name="Last.fm user" Target="LASTFM_USER" Default="" Mode="" Description="" Type="Variable" Display="always" Required="false" Mask="false"></Config>
-  <Config Name="Last.fm API key" Target="LASTFM_API_KEY" Default="" Mode="" Description="Optional: official-API fallback and album names" Type="Variable" Display="always" Required="false" Mask="true"></Config>
-  <Config Name="Last.fm mode" Target="LASTFM_MODE" Default="always" Mode="" Description="always, fallback or off" Type="Variable" Display="always" Required="false" Mask="false">always</Config>
+  <Config Name="ListenBrainz token" Target="LISTENBRAINZ_USER_TOKEN" Default="" Mode="" Description="From listenbrainz.org/settings; needed for the discovery mixes" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="Discovery mixes" Target="DISCOVERY_MIXES" Default="weekly" Mode="" Description="Any of daily,weekly,monthly (slower = deeper). weekly:40 sets the track count; off disables" Type="Variable" Display="always" Required="false" Mask="false">weekly</Config>
+  <Config Name="Avoid tags" Target="DISCOVERY_AVOID_TAGS" Default="" Mode="" Description="Comma-separated genres/tags the mixes never pick" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Prefer tags" Target="DISCOVERY_PREFER_TAGS" Default="" Mode="" Description="Comma-separated genres/tags the mixes lean towards" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
 
   <Config Name="Discovery schedule" Target="DISCOVERY_SCHEDULE" Default="15 0 * * *" Mode="" Description="Cron, in the container's time zone" Type="Variable" Display="always" Required="false" Mask="false">15 0 * * *</Config>
-  <Config Name="Weeks to keep" Target="KEEP_WEEKS" Default="2" Mode="" Description="Per source; older playlists and files are pruned, starred tracks move to Keepers/" Type="Variable" Display="always" Required="false" Mask="false">2</Config>
+  <Config Name="Weeks to keep" Target="KEEP_WEEKS" Default="2" Mode="" Description="Newest N playlists per source (days for the daily mix); older playlists and files are pruned, starred tracks move to Keepers/" Type="Variable" Display="always" Required="false" Mask="false">2</Config>
 
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="slskd and Explo run as this user" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
   <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
@@ -52,5 +52,5 @@
   <Config Name="Firewall outbound subnets" Target="FIREWALL_OUTBOUND_SUBNETS" Default="" Mode="" Description="Only if the Navidrome URL is a hostname, e.g. 192.168.1.0/24" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
   <Config Name="Prune files" Target="PRUNE_FILES" Default="true" Mode="" Description="false removes old playlists but keeps files" Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
   <Config Name="Require slskd" Target="REQUIRE_SLSKD" Default="true" Mode="" Description="Skip a run instead of filling it from YouTube when slskd is down" Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
-  <Config Name="YouTube API key" Target="YOUTUBE_API_KEY" Default="" Mode="" Description="Optional: from listenbrainz.org/settings; the playlists are public without it" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="YouTube API key" Target="YOUTUBE_API_KEY" Default="" Mode="" Description="Optional: Explo's YouTube fallback, when a track is not on Soulseek" Type="Variable" Display="always" Required="false" Mask="true"></Config>
 </Container>

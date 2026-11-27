@@ -135,7 +135,8 @@ fi
 # --- 3. discovery schedule -----------------------------------------------------------
 ENV_FILE="${WEB_ENV_PATH:-/config/explo/.env}"
 [ -e "$ENV_FILE" ] || : > "$ENV_FILE" # settings come from the environment, Explo just needs the file
-export -p > /run/ainulindale.env && chmod 600 /run/ainulindale.env
+# POSIX mode writes `export VAR="..."` instead of bash's `declare -x`, which the sh runner can source
+(set -o posix; export -p) > /run/ainulindale.env && chmod 600 /run/ainulindale.env
 
 # One runner for cron and the web UI: environment, Explo's folder, the right user.
 cat > /run/ainulindale-py <<RUNNER

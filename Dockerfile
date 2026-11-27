@@ -13,6 +13,8 @@ ENV SLSKD_VERSION=0.26.2 \
     SLSKD_VPN=true \
     # rescan shares daily, so moved/pruned files stop being offered and new ones are
     SLSKD_SHARE_CACHE_RETENTION=1440 \
+    # yt-dlp cookies for Explo's YouTube fallback; outside Explo's folder, which is replaced on upgrades
+    COOKIES_PATH=/config/explo/cookies.txt \
     SLSKD_VPN_GLUETUN_URL=http://localhost:8000 \
     SLSKD_URL=http://localhost:5030 \
     SLSKD_DIR=/music/slskd/ \

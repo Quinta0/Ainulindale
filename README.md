@@ -132,7 +132,7 @@ Fill in `.env`: VPN key, Soulseek login, Navidrome login, ListenBrainz name and 
 ### 2. Folders
 
 ```bash
-MUSIC_PATH=/mnt/user/data/media/music    # same as in .env
+MUSIC_PATH=/mnt/user/Music    # same as in .env: the folder Navidrome reads as its library
 mkdir -p $MUSIC_PATH/{explo,slskd/incomplete}
 touch $MUSIC_PATH/slskd/incomplete/.ndignore     # Navidrome skips half-downloaded files
 ```
@@ -212,6 +212,10 @@ docker compose up -d
 **Tick says "slskd did not log in ... Skipping this run".** Working as intended; it retries on the next tick. `REQUIRE_SLSKD=false` lets runs go ahead on YouTube alone.
 
 **A mix gives 0 tracks.** "no artist statistics" means ListenBrainz has not computed your stats yet (new accounts: give it a day of scrobbles). "HTTP 401" means `LISTENBRAINZ_USER_TOKEN` is missing or wrong. Few "new artists in reach" means your avoid tags are strict, or the cooldown has used up the neighbourhood; the monthly mix reaches further.
+
+**YouTube fallback fails with "Sign in to confirm you're not a bot".** YouTube blocks the VPN's address for downloads (searching still works, so `YOUTUBE_API_KEY` does not help). Either set `DOWNLOAD_SERVICES=slskd` to skip YouTube, or export cookies from a browser logged into a **throwaway** YouTube account ([how](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies)) to `config/explo/cookies.txt`. Cookies expire, so expect to refresh them now and then.
+
+**Downloads never show up in Navidrome.** `MUSIC_PATH` must be the folder Navidrome reads as its library. Compare with `docker inspect navidrome ainulindale --format '{{.Name}}: {{range .Mounts}}{{.Source}} -> {{.Destination}}  {{end}}'`.
 
 **Prune says it could not remove a folder.** Files from the old root-owned setup while Explo now runs with `PUID`/`PGID`. `chown -R` the `music/explo` folder.
 
